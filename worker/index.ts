@@ -7,6 +7,7 @@ import {
   hotlinkBlockedResponse,
   isCrossSiteAssetRequest,
   isKnownTrainingCrawler,
+  isProtectedAssetPath,
 } from "./anti-scraping";
 
 interface Env {
@@ -53,6 +54,14 @@ const worker = {
         hotlinkBlockedResponse(),
         url.pathname,
       );
+    }
+
+    // Protected static paths are selectively configured with
+    // assets.run_worker_first. Fetch them from the ASSETS binding after the
+    // request passes the crawler and hotlink checks.
+    if (isProtectedAssetPath(url.pathname)) {
+      const response = await env.ASSETS.fetch(request);
+      return applyAntiScrapingHeaders(response, url.pathname);
     }
 
     if (url.pathname === "/_vinext/image") {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -114,4 +115,15 @@ test("keeps the stronger noindex policy on crawler block responses", () => {
     response.headers.get("x-robots-tag"),
     "noindex, nofollow, noarchive",
   );
+});
+
+test("routes only protected static media through the Worker first", async () => {
+  const wrangler = await readFile(
+    new URL("../wrangler.jsonc", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(wrangler, /"run_worker_first"/);
+  assert.match(wrangler, /"\/coa\/reports\/\*"/);
+  assert.match(wrangler, /"\/media\/\*"/);
 });

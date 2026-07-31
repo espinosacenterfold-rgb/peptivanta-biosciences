@@ -13,7 +13,15 @@
   // 静态图片、字体和前端文件由 ASSETS 绑定提供给 Worker。
   // 最终的 assets.directory 会由 Cloudflare Vite 插件在构建时自动生成。
   "assets": {
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+
+    // Cloudflare normally serves matching static files before the Worker.
+    // Route only protected COA and factory media through the Worker so the
+    // anti-hotlink checks run without billing every ordinary static asset.
+    "run_worker_first": [
+      "/coa/reports/*",
+      "/media/*"
+    ]
   },
 
   // 成交/履约记录使用的 Cloudflare D1 数据库。
