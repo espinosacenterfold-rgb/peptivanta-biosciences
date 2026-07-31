@@ -10,7 +10,7 @@
     "build": "vinext build",
     "start": "vinext start",
     "deploy": "npm run build && wrangler deploy -c dist/server/wrangler.json",
-    "test": "npm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/fulfillment-generator.test.mjs",
+    "test": "npm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/fulfillment-generator.test.mjs tests/anti-scraping.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
