@@ -32,6 +32,10 @@ type FulfillmentRecord = {
     | string;
   isSample: boolean;
   source: "sample" | "manual";
+  items?: Array<{
+    productName: string;
+    specification: string;
+  }>;
 };
 
 type ApiResponse = {
@@ -179,6 +183,7 @@ const content = {
     settledUnit: "Discounted unit",
     volumeDiscount: "volume discount",
     perBox: "box",
+    productLines: "product lines",
     fees: "packaging, testing & logistics",
   },
   pt: {
@@ -232,6 +237,7 @@ const content = {
     settledUnit: "Preço com desconto",
     volumeDiscount: "desconto por volume",
     perBox: "caixa",
+    productLines: "linhas de produtos",
     fees: "embalagem, testes e logística",
   },
   es: {
@@ -285,6 +291,7 @@ const content = {
     settledUnit: "Precio con descuento",
     volumeDiscount: "descuento por volumen",
     perBox: "caja",
+    productLines: "líneas de producto",
     fees: "empaque, pruebas y logística",
   },
   fr: {
@@ -338,6 +345,7 @@ const content = {
     settledUnit: "Prix remisé",
     volumeDiscount: "remise sur volume",
     perBox: "boîte",
+    productLines: "lignes de produits",
     fees: "emballage, essais et logistique",
   },
   zh: {
@@ -391,6 +399,7 @@ const content = {
     settledUnit: "折后成交单价",
     volumeDiscount: "数量折扣",
     perBox: "盒",
+    productLines: "个产品规格",
     fees: "包装、检测及物流",
   },
 } as const;
@@ -541,6 +550,16 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
                   record.packagingFeeUsdCents +
                   record.testingFeeUsdCents +
                   record.logisticsFeeUsdCents;
+                const orderItems =
+                  record.items?.length
+                    ? record.items
+                    : [
+                        {
+                          productName: record.productName,
+                          specification: record.specification,
+                        },
+                      ];
+                const hasMultipleProducts = orderItems.length > 1;
                 return (
                   <tr key={record.id}>
                     <td data-label={t.headers[0]}>
@@ -555,8 +574,17 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
                       {t.markets[record.destination]}
                     </td>
                     <td className="case-product" data-label={t.headers[3]}>
-                      <strong>{record.productName}</strong>
-                      <small>{record.specification}</small>
+                      <div className="case-product-lines">
+                        {orderItems.map((item, index) => (
+                          <span
+                            className="case-product-line"
+                            key={`${record.id}-${item.productName}-${item.specification}-${index}`}
+                          >
+                            <strong>{item.productName}</strong>
+                            <small>{item.specification}</small>
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="case-service" data-label={t.headers[4]}>
                       <strong>
@@ -575,33 +603,55 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
                         {amountFormatter.format(record.amountUsdCents / 100)}
                       </strong>
                       <small className="case-price-breakdown">
-                        <span>
-                          {t.quoteRetail}{" "}
-                          {amountFormatter.format(
-                            record.retailUnitPriceUsdCents / 100,
-                          )}
-                          /{t.perBox}
-                          {record.discountBps > 0 && (
-                            <>
-                              {" · "}
-                              {t.volumeDiscount}{" "}
-                              {(record.discountBps / 100).toFixed(0)}%
-                            </>
-                          )}
-                        </span>
-                        <span>
-                          {t.settledUnit}{" "}
-                          {amountFormatter.format(
-                            record.unitPriceUsdCents / 100,
-                          )}
-                          /{t.perBox}
-                          {fees > 0 && (
-                            <>
-                              {" · "}
-                              {amountFormatter.format(fees / 100)} {t.fees}
-                            </>
-                          )}
-                        </span>
+                        {hasMultipleProducts ? (
+                          <>
+                            <span>
+                              {orderItems.length} {t.productLines}
+                              {record.discountBps > 0 && (
+                                <>
+                                  {" · "}
+                                  {t.volumeDiscount}{" "}
+                                  {(record.discountBps / 100).toFixed(0)}%
+                                </>
+                              )}
+                            </span>
+                            {fees > 0 && (
+                              <span>
+                                {amountFormatter.format(fees / 100)} {t.fees}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <span>
+                              {t.quoteRetail}{" "}
+                              {amountFormatter.format(
+                                record.retailUnitPriceUsdCents / 100,
+                              )}
+                              /{t.perBox}
+                              {record.discountBps > 0 && (
+                                <>
+                                  {" · "}
+                                  {t.volumeDiscount}{" "}
+                                  {(record.discountBps / 100).toFixed(0)}%
+                                </>
+                              )}
+                            </span>
+                            <span>
+                              {t.settledUnit}{" "}
+                              {amountFormatter.format(
+                                record.unitPriceUsdCents / 100,
+                              )}
+                              /{t.perBox}
+                              {fees > 0 && (
+                                <>
+                                  {" · "}
+                                  {amountFormatter.format(fees / 100)} {t.fees}
+                                </>
+                              )}
+                            </span>
+                          </>
+                        )}
                       </small>
                     </td>
                     <td data-label={t.headers[7]}>

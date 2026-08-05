@@ -1,8 +1,9 @@
 import { ensureFulfillmentSchema, getD1 } from "../../../../db";
 import { findCatalogVariant } from "../../../../lib/product-catalog.ts";
 import {
-  calculateOrderPricing,
+  calculateMultiItemOrderPricing,
   orderProfileForQuantity,
+  type PricingService,
 } from "../../../../lib/order-pricing.ts";
 import { requireFulfillmentAdmin } from "../auth";
 
@@ -28,21 +29,63 @@ const statuses = new Set([
   "delivered",
 ]);
 
+type ManualOrderItemInput = {
+  sku?: unknown;
+  productName?: unknown;
+  specification?: unknown;
+  quantityUnits?: unknown;
+};
+
 type ManualOrderInput = {
   id?: unknown;
   reference?: unknown;
   occurredAt?: unknown;
   destination?: unknown;
   service?: unknown;
+  items?: unknown;
+  // These legacy fields keep older deployed admin clients compatible.
   sku?: unknown;
   productName?: unknown;
   specification?: unknown;
   quantityUnits?: unknown;
   serviceFeeUsdCents?: unknown;
-  shippingFeeUsdCents?: unknown;
   deductionUsdCents?: unknown;
   status?: unknown;
   isPublished?: unknown;
+};
+
+type StoredOrder = {
+  id: number;
+  reference: string;
+  occurredAt: string;
+  destination: string;
+  service: PricingService;
+  orderProfile: string;
+  sku: string;
+  productName: string;
+  specification: string;
+  quantityUnits: number;
+  retailUnitPriceUsdCents: number;
+  discountBps: number;
+  serviceFeeUsdCents: number;
+  deductionUsdCents: number;
+  status: string;
+  isPublished: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type StoredItem = {
+  id: number;
+  orderId: number;
+  sku: string;
+  productName: string;
+  specification: string;
+  quantityUnits: number;
+  retailUnitPriceUsdCents: number;
+  discountedUnitPriceUsdCents: number;
+  lineAmountUsdCents: number;
+  position: number;
 };
 
 function textField(value: unknown, name: string, maximum: number) {
@@ -84,94 +127,6 @@ function normalizeReference(value: unknown, occurredAt: string) {
     .toUpperCase()}`;
 }
 
-function validateInput(body: ManualOrderInput, includeId: boolean) {
-  const occurredAt = validateDate(body.occurredAt);
-  const destination = textField(body.destination, "Destination", 40);
-  const service = textField(body.service, "Service", 30);
-  const status = textField(body.status, "Status", 40);
-
-  if (!markets.has(destination)) throw new Error("Destination is invalid.");
-  if (!services.has(service)) throw new Error("Service is invalid.");
-  if (!statuses.has(status)) throw new Error("Status is invalid.");
-
-  const quantityUnits = Number(body.quantityUnits);
-  if (
-    !Number.isSafeInteger(quantityUnits) ||
-    quantityUnits < 1 ||
-    quantityUnits > 100_000
-  ) {
-    throw new Error("Quantity must be a whole number between 1 and 100,000.");
-  }
-
-  const id = Number(body.id);
-  if (includeId && (!Number.isSafeInteger(id) || id < 1)) {
-    throw new Error("Order id is invalid.");
-  }
-
-  const sku = textField(body.sku, "SKU", 40);
-  const productName = textField(body.productName, "Product name", 120);
-  const specification = textField(
-    body.specification,
-    "Specification",
-    180,
-  );
-  const catalogItem = findCatalogVariant(sku, productName, specification);
-  if (!catalogItem) {
-    throw new Error(
-      "The selected product specification does not match the official quote catalogue.",
-    );
-  }
-
-  const requestedServiceFeeUsdCents = moneyField(
-    body.serviceFeeUsdCents,
-    "Service/packaging fee",
-  );
-  const requestedShippingFeeUsdCents = moneyField(
-    body.shippingFeeUsdCents,
-    "Shipping fee",
-  );
-  const serviceFeeUsdCents =
-    service === "catalogue" ? 0 : requestedServiceFeeUsdCents;
-  const shippingFeeUsdCents =
-    service === "catalogue" ? 0 : requestedShippingFeeUsdCents;
-  const deductionUsdCents = moneyField(
-    body.deductionUsdCents,
-    "Extra deduction",
-  );
-  const pricing = calculateOrderPricing({
-    retailUnitPriceUsdCents: catalogItem.retailUsdCents,
-    quantityUnits,
-    service: service as "catalogue" | "private_label" | "bulk" | "custom",
-    serviceFeeUsdCents,
-    shippingFeeUsdCents,
-    deductionUsdCents,
-  });
-  if (pricing.amountUsdCents < 1) {
-    throw new Error("The calculated order total must be greater than US$0.");
-  }
-
-  return {
-    id,
-    reference: normalizeReference(body.reference, occurredAt),
-    occurredAt,
-    destination,
-    service,
-    orderProfile: orderProfileForQuantity(quantityUnits),
-    sku: catalogItem.sku,
-    productName: catalogItem.productName,
-    specification: catalogItem.specification,
-    quantityUnits,
-    retailUnitPriceUsdCents: catalogItem.retailUsdCents,
-    discountBps: pricing.discountBps,
-    serviceFeeUsdCents,
-    shippingFeeUsdCents,
-    deductionUsdCents,
-    amountUsdCents: pricing.amountUsdCents,
-    status,
-    isPublished: body.isPublished === false ? 0 : 1,
-  };
-}
-
 function moneyField(value: unknown, name: string) {
   const amount = Number(value ?? 0);
   if (
@@ -184,37 +139,254 @@ function moneyField(value: unknown, name: string) {
   return amount;
 }
 
+function validateItem(input: ManualOrderItemInput, index: number) {
+  const quantityUnits = Number(input.quantityUnits);
+  if (
+    !Number.isSafeInteger(quantityUnits) ||
+    quantityUnits < 1 ||
+    quantityUnits > 100_000
+  ) {
+    throw new Error(
+      `Product ${index + 1} quantity must be a whole number between 1 and 100,000.`,
+    );
+  }
+
+  const sku = textField(input.sku, `Product ${index + 1} SKU`, 40);
+  const productName = textField(
+    input.productName,
+    `Product ${index + 1} name`,
+    120,
+  );
+  const specification = textField(
+    input.specification,
+    `Product ${index + 1} specification`,
+    180,
+  );
+  const catalogItem = findCatalogVariant(sku, productName, specification);
+  if (!catalogItem) {
+    throw new Error(
+      `Product ${index + 1} does not match the official quote catalogue.`,
+    );
+  }
+
+  return {
+    sku: catalogItem.sku,
+    productName: catalogItem.productName,
+    specification: catalogItem.specification,
+    quantityUnits,
+    retailUnitPriceUsdCents: catalogItem.retailUsdCents,
+  };
+}
+
+function validateInput(body: ManualOrderInput, includeId: boolean) {
+  const occurredAt = validateDate(body.occurredAt);
+  const destination = textField(body.destination, "Destination", 40);
+  const service = textField(body.service, "Service", 30);
+  const status = textField(body.status, "Status", 40);
+
+  if (!markets.has(destination)) throw new Error("Destination is invalid.");
+  if (!services.has(service)) throw new Error("Service is invalid.");
+  if (!statuses.has(status)) throw new Error("Status is invalid.");
+
+  const id = Number(body.id);
+  if (includeId && (!Number.isSafeInteger(id) || id < 1)) {
+    throw new Error("Order id is invalid.");
+  }
+
+  const submittedItems = Array.isArray(body.items)
+    ? (body.items as ManualOrderItemInput[])
+    : [
+        {
+          sku: body.sku,
+          productName: body.productName,
+          specification: body.specification,
+          quantityUnits: body.quantityUnits,
+        },
+      ];
+  if (submittedItems.length < 1 || submittedItems.length > 20) {
+    throw new Error("An order must contain between 1 and 20 product lines.");
+  }
+  const items = submittedItems.map(validateItem);
+  const duplicateKeys = new Set<string>();
+  for (const item of items) {
+    const key = `${item.sku}\u0000${item.productName}\u0000${item.specification}`;
+    if (duplicateKeys.has(key)) {
+      throw new Error(
+        "The same product specification appears more than once. Combine its quantity into one line.",
+      );
+    }
+    duplicateKeys.add(key);
+  }
+
+  const serviceFeeUsdCents =
+    service === "catalogue"
+      ? 0
+      : moneyField(body.serviceFeeUsdCents, "Service/packaging fee");
+  const deductionUsdCents = moneyField(
+    body.deductionUsdCents,
+    "Extra deduction",
+  );
+  const pricing = calculateMultiItemOrderPricing({
+    items,
+    service: service as PricingService,
+    serviceFeeUsdCents,
+    deductionUsdCents,
+  });
+  if (pricing.amountUsdCents < 1) {
+    throw new Error("The calculated order total must be greater than US$0.");
+  }
+
+  const firstItem = pricing.items[0];
+  return {
+    id,
+    reference: normalizeReference(body.reference, occurredAt),
+    occurredAt,
+    destination,
+    service: service as PricingService,
+    orderProfile: orderProfileForQuantity(pricing.quantityUnits),
+    sku: firstItem.sku,
+    productName: firstItem.productName,
+    specification: firstItem.specification,
+    quantityUnits: pricing.quantityUnits,
+    retailUnitPriceUsdCents: firstItem.retailUnitPriceUsdCents,
+    discountBps: pricing.discountBps,
+    serviceFeeUsdCents,
+    deductionUsdCents,
+    amountUsdCents: pricing.amountUsdCents,
+    status,
+    isPublished: body.isPublished === false ? 0 : 1,
+    items: pricing.items,
+  };
+}
+
+function itemInsertStatements(
+  d1: Awaited<ReturnType<typeof getD1>>,
+  orderId: number,
+  items: ReturnType<typeof validateInput>["items"],
+) {
+  return items.map((item, position) =>
+    d1
+      .prepare(
+        `INSERT INTO manual_fulfillment_order_items (
+           order_id,
+           sku,
+           product_name,
+           specification,
+           quantity_units,
+           retail_unit_price_usd_cents,
+           discounted_unit_price_usd_cents,
+           line_amount_usd_cents,
+           position
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        orderId,
+        item.sku,
+        item.productName,
+        item.specification,
+        item.quantityUnits,
+        item.retailUnitPriceUsdCents,
+        item.discountedUnitPriceUsdCents,
+        item.lineAmountUsdCents,
+        position,
+      ),
+  );
+}
+
 async function readOrders() {
   const d1 = await getD1();
-  const result = await d1
-    .prepare(
-      `SELECT
-         id,
-         reference,
-         occurred_at AS occurredAt,
-         destination,
-         service,
-         order_profile AS orderProfile,
-         sku,
-         product_name AS productName,
-         specification,
-         quantity_units AS quantityUnits,
-         retail_unit_price_usd_cents AS retailUnitPriceUsdCents,
-         discount_bps AS discountBps,
-         service_fee_usd_cents AS serviceFeeUsdCents,
-         shipping_fee_usd_cents AS shippingFeeUsdCents,
-         deduction_usd_cents AS deductionUsdCents,
-         amount_usd_cents AS amountUsdCents,
-         status,
-         is_published AS isPublished,
-         created_at AS createdAt,
-         updated_at AS updatedAt
-       FROM manual_fulfillment_orders
-       ORDER BY created_at DESC, id DESC
-       LIMIT 200`,
-    )
-    .all();
-  return result.results;
+  const [orderResult, itemResult] = await Promise.all([
+    d1
+      .prepare(
+        `SELECT
+           id,
+           reference,
+           occurred_at AS occurredAt,
+           destination,
+           service,
+           order_profile AS orderProfile,
+           sku,
+           product_name AS productName,
+           specification,
+           quantity_units AS quantityUnits,
+           retail_unit_price_usd_cents AS retailUnitPriceUsdCents,
+           discount_bps AS discountBps,
+           service_fee_usd_cents AS serviceFeeUsdCents,
+           deduction_usd_cents AS deductionUsdCents,
+           status,
+           is_published AS isPublished,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+         FROM manual_fulfillment_orders
+         ORDER BY occurred_at DESC, created_at DESC, id DESC
+         LIMIT 200`,
+      )
+      .all(),
+    d1
+      .prepare(
+        `SELECT
+           id,
+           order_id AS orderId,
+           sku,
+           product_name AS productName,
+           specification,
+           quantity_units AS quantityUnits,
+           retail_unit_price_usd_cents AS retailUnitPriceUsdCents,
+           discounted_unit_price_usd_cents AS discountedUnitPriceUsdCents,
+           line_amount_usd_cents AS lineAmountUsdCents,
+           position
+         FROM manual_fulfillment_order_items
+         ORDER BY order_id, position, id`,
+      )
+      .all(),
+  ]);
+
+  const storedOrders = orderResult.results as unknown as StoredOrder[];
+  const storedItems = itemResult.results as unknown as StoredItem[];
+
+  const itemsByOrder = new Map<number, StoredItem[]>();
+  for (const item of storedItems) {
+    const group = itemsByOrder.get(item.orderId) ?? [];
+    group.push(item);
+    itemsByOrder.set(item.orderId, group);
+  }
+
+  return storedOrders.map((order) => {
+    const items = itemsByOrder.get(order.id) ?? [
+      {
+        id: 0,
+        orderId: order.id,
+        sku: order.sku,
+        productName: order.productName,
+        specification: order.specification,
+        quantityUnits: order.quantityUnits,
+        retailUnitPriceUsdCents: order.retailUnitPriceUsdCents,
+        discountedUnitPriceUsdCents: Math.round(
+          (order.retailUnitPriceUsdCents * (10_000 - order.discountBps)) /
+            10_000,
+        ),
+        lineAmountUsdCents:
+          Math.round(
+            (order.retailUnitPriceUsdCents * (10_000 - order.discountBps)) /
+              10_000,
+          ) * order.quantityUnits,
+        position: 0,
+      },
+    ];
+    const productTotal = items.reduce(
+      (sum, item) => sum + item.lineAmountUsdCents,
+      0,
+    );
+    return {
+      ...order,
+      shippingFeeUsdCents: 0,
+      amountUsdCents: Math.max(
+        0,
+        productTotal + order.serviceFeeUsdCents - order.deductionUsdCents,
+      ),
+      items,
+    };
+  });
 }
 
 export async function GET(request: Request) {
@@ -232,6 +404,7 @@ export async function POST(request: Request) {
   const unauthorized = await requireFulfillmentAdmin(request);
   if (unauthorized) return unauthorized;
 
+  let insertedOrderId: number | null = null;
   try {
     await ensureFulfillmentSchema();
     const order = validateInput(
@@ -239,7 +412,7 @@ export async function POST(request: Request) {
       false,
     );
     const d1 = await getD1();
-    await d1
+    const result = await d1
       .prepare(
         `INSERT INTO manual_fulfillment_orders (
            reference,
@@ -260,7 +433,7 @@ export async function POST(request: Request) {
            status,
            is_published,
            updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       )
       .bind(
         order.reference,
@@ -275,19 +448,34 @@ export async function POST(request: Request) {
         order.retailUnitPriceUsdCents,
         order.discountBps,
         order.serviceFeeUsdCents,
-        order.shippingFeeUsdCents,
         order.deductionUsdCents,
         order.amountUsdCents,
         order.status,
         order.isPublished,
       )
       .run();
+    insertedOrderId = Number(result.meta.last_row_id);
+    if (!Number.isSafeInteger(insertedOrderId) || insertedOrderId < 1) {
+      throw new Error("The new order id could not be resolved.");
+    }
+    await d1.batch(itemInsertStatements(d1, insertedOrderId, order.items));
 
     return Response.json(
       { ok: true, orders: await readOrders() },
       { status: 201, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
+    if (insertedOrderId) {
+      try {
+        const d1 = await getD1();
+        await d1
+          .prepare("DELETE FROM manual_fulfillment_orders WHERE id = ?")
+          .bind(insertedOrderId)
+          .run();
+      } catch {
+        // Preserve the original error response if cleanup itself fails.
+      }
+    }
     const message =
       error instanceof Error ? error.message : "Unable to create order.";
     const status = /UNIQUE constraint failed/i.test(message) ? 409 : 400;
@@ -309,52 +497,56 @@ export async function PATCH(request: Request) {
       true,
     );
     const d1 = await getD1();
-    const result = await d1
-      .prepare(
-        `UPDATE manual_fulfillment_orders SET
-           reference = ?,
-           occurred_at = ?,
-           destination = ?,
-           service = ?,
-           order_profile = ?,
-           sku = ?,
-           product_name = ?,
-           specification = ?,
-           quantity_units = ?,
-           retail_unit_price_usd_cents = ?,
-           discount_bps = ?,
-           service_fee_usd_cents = ?,
-           shipping_fee_usd_cents = ?,
-           deduction_usd_cents = ?,
-           amount_usd_cents = ?,
-           status = ?,
-           is_published = ?,
-           updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-      )
-      .bind(
-        order.reference,
-        order.occurredAt,
-        order.destination,
-        order.service,
-        order.orderProfile,
-        order.sku,
-        order.productName,
-        order.specification,
-        order.quantityUnits,
-        order.retailUnitPriceUsdCents,
-        order.discountBps,
-        order.serviceFeeUsdCents,
-        order.shippingFeeUsdCents,
-        order.deductionUsdCents,
-        order.amountUsdCents,
-        order.status,
-        order.isPublished,
-        order.id,
-      )
-      .run();
+    const results = await d1.batch([
+      d1
+        .prepare(
+          `UPDATE manual_fulfillment_orders SET
+             reference = ?,
+             occurred_at = ?,
+             destination = ?,
+             service = ?,
+             order_profile = ?,
+             sku = ?,
+             product_name = ?,
+             specification = ?,
+             quantity_units = ?,
+             retail_unit_price_usd_cents = ?,
+             discount_bps = ?,
+             service_fee_usd_cents = ?,
+             shipping_fee_usd_cents = 0,
+             deduction_usd_cents = ?,
+             amount_usd_cents = ?,
+             status = ?,
+             is_published = ?,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+        )
+        .bind(
+          order.reference,
+          order.occurredAt,
+          order.destination,
+          order.service,
+          order.orderProfile,
+          order.sku,
+          order.productName,
+          order.specification,
+          order.quantityUnits,
+          order.retailUnitPriceUsdCents,
+          order.discountBps,
+          order.serviceFeeUsdCents,
+          order.deductionUsdCents,
+          order.amountUsdCents,
+          order.status,
+          order.isPublished,
+          order.id,
+        ),
+      d1
+        .prepare("DELETE FROM manual_fulfillment_order_items WHERE order_id = ?")
+        .bind(order.id),
+      ...itemInsertStatements(d1, order.id, order.items),
+    ]);
 
-    if (!result.meta.changes) {
+    if (!results[0].meta.changes) {
       return Response.json(
         { error: "Order not found." },
         { status: 404, headers: { "Cache-Control": "no-store" } },
@@ -392,12 +584,14 @@ export async function DELETE(request: Request) {
     }
 
     const d1 = await getD1();
-    const result = await d1
-      .prepare("DELETE FROM manual_fulfillment_orders WHERE id = ?")
-      .bind(id)
-      .run();
+    const results = await d1.batch([
+      d1
+        .prepare("DELETE FROM manual_fulfillment_order_items WHERE order_id = ?")
+        .bind(id),
+      d1.prepare("DELETE FROM manual_fulfillment_orders WHERE id = ?").bind(id),
+    ]);
 
-    if (!result.meta.changes) {
+    if (!results[1].meta.changes) {
       return Response.json(
         { error: "Order not found." },
         { status: 404, headers: { "Cache-Control": "no-store" } },

@@ -1,7 +1,8 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ensureFulfillmentSchema, getD1, getDb } from "../../../db";
 import {
   fulfillmentCases,
+  manualFulfillmentOrderItems,
   manualFulfillmentOrders,
 } from "../../../db/schema";
 import {
@@ -10,6 +11,7 @@ import {
   currentFulfillmentStatus,
   DISPLAY_LIMIT,
   LEDGER_VERSION,
+  mergeFulfillmentRecords,
   UPDATE_INTERVAL_DAYS,
   type FulfillmentMarket,
   type FulfillmentService,
@@ -39,12 +41,6 @@ function addUtcDays(date: Date, days: number) {
   const result = startOfUtcDay(date);
   result.setUTCDate(result.getUTCDate() + days);
   return result;
-}
-
-function threeMonthsAgo(now: Date) {
-  const cutoff = startOfUtcDay(now);
-  cutoff.setUTCMonth(cutoff.getUTCMonth() - 3);
-  return isoDate(cutoff);
 }
 
 async function getMeta(key: string) {
@@ -164,21 +160,36 @@ async function advanceDailyLedger(now: Date) {
   return lastGenerated;
 }
 
+/**
+ * The public ledger only needs its latest 100 illustrative rows. Real orders
+ * are held in a different table and are never touched by this cleanup.
+ */
+async function pruneIllustrativeRows() {
+  const d1 = await getD1();
+  await d1
+    .prepare(
+      `DELETE FROM fulfillment_cases
+       WHERE is_sample = 1
+         AND id NOT IN (
+           SELECT id
+           FROM fulfillment_cases
+           WHERE is_sample = 1
+           ORDER BY occurred_at DESC, id DESC
+           LIMIT ?
+         )`,
+    )
+    .bind(DISPLAY_LIMIT)
+    .run();
+}
+
 export async function GET() {
   try {
     await ensureFulfillmentSchema();
     await clearPreviousHistoryOnce();
 
     const now = new Date();
-    const windowStart = threeMonthsAgo(now);
     const generatedAt = await advanceDailyLedger(now);
-    const d1 = await getD1();
-    await d1
-      .prepare(
-        "DELETE FROM fulfillment_cases WHERE is_sample = 1 AND occurred_at < ?",
-      )
-      .bind(windowStart)
-      .run();
+    await pruneIllustrativeRows();
 
     const db = await getDb();
     const sampleRows = await db
@@ -188,7 +199,6 @@ export async function GET() {
         and(
           eq(fulfillmentCases.isSample, true),
           eq(fulfillmentCases.isPublished, true),
-          gte(fulfillmentCases.occurredAt, windowStart),
         ),
       )
       .orderBy(
@@ -202,10 +212,38 @@ export async function GET() {
       .from(manualFulfillmentOrders)
       .where(eq(manualFulfillmentOrders.isPublished, true))
       .orderBy(
+        desc(manualFulfillmentOrders.occurredAt),
         desc(manualFulfillmentOrders.createdAt),
         desc(manualFulfillmentOrders.id),
       )
       .limit(DISPLAY_LIMIT);
+
+    const manualItemRows =
+      manualRows.length === 0
+        ? []
+        : await db
+            .select()
+            .from(manualFulfillmentOrderItems)
+            .where(
+              inArray(
+                manualFulfillmentOrderItems.orderId,
+                manualRows.map((row) => row.id),
+              ),
+            )
+            .orderBy(
+              asc(manualFulfillmentOrderItems.orderId),
+              asc(manualFulfillmentOrderItems.position),
+              asc(manualFulfillmentOrderItems.id),
+            );
+    const manualItemsByOrder = new Map<
+      number,
+      typeof manualItemRows
+    >();
+    for (const item of manualItemRows) {
+      const group = manualItemsByOrder.get(item.orderId) ?? [];
+      group.push(item);
+      manualItemsByOrder.set(item.orderId, group);
+    }
 
     const sampleRecords = sampleRows.map((row) => {
       const { quantityUnits, ...publicRow } = row;
@@ -227,6 +265,12 @@ export async function GET() {
         ...publicRow,
         id: `sample-${row.id}`,
         source: "sample" as const,
+        items: [
+          {
+            productName: row.productName,
+            specification: row.specification,
+          },
+        ],
         retailUnitPriceUsdCents:
           catalogItem?.retailUsdCents ?? row.unitPriceUsdCents,
         discountBps,
@@ -253,40 +297,68 @@ export async function GET() {
       };
     });
 
-    const manualRecords = manualRows.map((row) => ({
-      id: `manual-${row.id}`,
-      reference: row.reference,
-      occurredAt: row.occurredAt,
-      destination: row.destination,
-      service: row.service,
-      orderProfile: row.orderProfile,
-      productName: row.productName,
-      specification: row.specification,
-      unitPriceUsdCents: Math.round(
+    const manualRecords = manualRows.map((row) => {
+      const storedItems = manualItemsByOrder.get(row.id) ?? [];
+      const fallbackUnitPrice = Math.round(
         (row.retailUnitPriceUsdCents * (10_000 - row.discountBps)) / 10_000,
-      ),
-      retailUnitPriceUsdCents: row.retailUnitPriceUsdCents,
-      discountBps: row.discountBps,
-      packagingFeeUsdCents: row.serviceFeeUsdCents,
-      testingFeeUsdCents: 0,
-      logisticsFeeUsdCents: row.shippingFeeUsdCents,
-      amountUsdCents: row.amountUsdCents,
-      status: row.status,
-      isSample: false,
-      isPublished: row.isPublished,
-      createdAt: row.createdAt,
-      source: "manual" as const,
-    }));
+      );
+      const items =
+        storedItems.length > 0
+          ? storedItems
+          : [
+              {
+                productName: row.productName,
+                specification: row.specification,
+                lineAmountUsdCents: fallbackUnitPrice * row.quantityUnits,
+                retailUnitPriceUsdCents: row.retailUnitPriceUsdCents,
+                discountedUnitPriceUsdCents: fallbackUnitPrice,
+              },
+            ];
+      const productTotal = items.reduce(
+        (sum, item) => sum + item.lineAmountUsdCents,
+        0,
+      );
+      const firstItem = items[0];
+      return {
+        id: `manual-${row.id}`,
+        reference: row.reference,
+        occurredAt: row.occurredAt,
+        destination: row.destination,
+        service: row.service,
+        orderProfile: row.orderProfile,
+        productName: firstItem.productName,
+        specification: firstItem.specification,
+        unitPriceUsdCents: firstItem.discountedUnitPriceUsdCents,
+        retailUnitPriceUsdCents: firstItem.retailUnitPriceUsdCents,
+        discountBps: row.discountBps,
+        packagingFeeUsdCents: row.serviceFeeUsdCents,
+        testingFeeUsdCents: 0,
+        logisticsFeeUsdCents: 0,
+        amountUsdCents: Math.max(
+          0,
+          productTotal + row.serviceFeeUsdCents - row.deductionUsdCents,
+        ),
+        status: row.status,
+        isSample: false,
+        isPublished: row.isPublished,
+        createdAt: row.createdAt,
+        source: "manual" as const,
+        items: items.map((item) => ({
+          productName: item.productName,
+          specification: item.specification,
+        })),
+      };
+    });
 
-    /*
-     * Newly registered real orders always lead the public list. Within that
-     * section they are ordered by database creation time, while illustrative
-     * rows retain their normal fulfillment-date order.
-     */
-    const records = [...manualRecords, ...sampleRecords].slice(
-      0,
+    // Reserve room for every published real order, then sort the mixed ledger
+    // only by the business order date. Adding an older real order therefore
+    // places it at its historical date instead of pinning it to the top.
+    const records = mergeFulfillmentRecords(
+      manualRecords,
+      sampleRecords,
       DISPLAY_LIMIT,
     );
+    const windowStart = records.at(-1)?.occurredAt ?? isoDate(now);
     const nextUpdateAt = addUtcDays(startOfUtcDay(now), 1);
 
     return Response.json(

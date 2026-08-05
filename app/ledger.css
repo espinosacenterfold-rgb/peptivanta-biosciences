@@ -66,6 +66,20 @@
   white-space: normal;
 }
 
+.case-product-lines {
+  display: grid;
+  gap: 8px;
+}
+
+.case-product-line {
+  display: block;
+}
+
+.case-product-line + .case-product-line {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 .case-price-breakdown span {
   display: block;
 }

@@ -289,6 +289,91 @@
   gap: 18px;
 }
 
+.admin-product-lines {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 2px 0 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(242, 246, 245, 0.72);
+}
+
+.admin-product-lines legend {
+  width: 100%;
+  padding: 0 0 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.admin-product-lines legend span {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 740;
+}
+
+.admin-product-lines legend small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.admin-product-line {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  display: grid;
+  grid-template-columns: 42px minmax(180px, 1fr) minmax(250px, 1.4fr) minmax(120px, 0.45fr) 74px;
+  align-items: end;
+  gap: 12px;
+}
+
+.admin-product-line + .admin-product-line {
+  margin-top: 10px;
+}
+
+.admin-product-line-number {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: var(--ink);
+  color: white;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.admin-remove-product,
+.admin-add-product {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 730;
+}
+
+.admin-remove-product {
+  min-height: 48px;
+  border-radius: 11px;
+  color: #9c2929;
+}
+
+.admin-add-product {
+  min-height: 42px;
+  margin-top: 12px;
+  padding: 0 16px;
+  border-style: dashed;
+  border-radius: 11px;
+  color: var(--blue);
+}
+
 .admin-checkbox {
   min-height: 48px;
   padding: 0 14px;
@@ -418,6 +503,16 @@
   font-size: 11px;
 }
 
+.admin-order-item-summary {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.admin-order-item-summary p strong {
+  color: var(--ink);
+}
+
 .admin-order-cards header > strong {
   font-family: var(--font-display);
   font-size: 24px;
@@ -511,6 +606,18 @@
   .admin-order-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .admin-product-line {
+    grid-template-columns: 36px repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-product-line > label:nth-of-type(3) {
+    grid-column: 2;
+  }
+
+  .admin-remove-product {
+    grid-column: 3;
+  }
 }
 
 @media (max-width: 620px) {
@@ -556,5 +663,25 @@
 
   .admin-order-cards dl {
     grid-template-columns: 1fr;
+  }
+
+  .admin-product-lines {
+    padding: 14px;
+  }
+
+  .admin-product-lines legend,
+  .admin-product-line {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-product-lines legend {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-product-line-number,
+  .admin-product-line > label:nth-of-type(3),
+  .admin-remove-product {
+    grid-column: 1;
   }
 }

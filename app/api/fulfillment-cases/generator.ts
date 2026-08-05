@@ -4,7 +4,7 @@ import {
   orderProfileForQuantity,
 } from "../../../lib/order-pricing.ts";
 
-export const LEDGER_VERSION = "daily-v3-quote-pricing";
+export const LEDGER_VERSION = "daily-v4-10-30-orders";
 export const DISPLAY_LIMIT = 100;
 export const UPDATE_INTERVAL_DAYS = 1;
 
@@ -69,6 +69,25 @@ export type GeneratedFulfillmentRow = {
   isSample: true;
   isPublished: true;
 };
+
+export function mergeFulfillmentRecords<
+  TManual extends { occurredAt: string; reference: string },
+  TSample extends { occurredAt: string; reference: string },
+>(
+  manualRecords: readonly TManual[],
+  sampleRecords: readonly TSample[],
+  limit: number,
+) {
+  const manual = manualRecords.slice(0, limit);
+  const sampleSlots = Math.max(0, limit - manual.length);
+  return [...manual, ...sampleRecords.slice(0, sampleSlots)]
+    .sort(
+      (left, right) =>
+        right.occurredAt.localeCompare(left.occurredAt) ||
+        right.reference.localeCompare(left.reference),
+    )
+    .slice(0, limit);
+}
 
 /**
  * Profiles are weighted within each service. Small catalogue and pilot orders
@@ -143,19 +162,28 @@ const CATALOGUE_PRODUCTS: readonly Product[] = PRODUCT_CATALOG.map((item) => ({
   name: item.productName,
   specification: item.specification,
   unitPriceUsdCents: item.retailUsdCents,
-  // Common catalogue lines remain more visible without excluding any SKU.
+  // Lower-priced catalogue lines are intentionally more common so the public
+  // flow is led by realistic tens/hundreds-of-dollars orders rather than a
+  // wall of high-dose, high-value configurations. Every quoted SKU remains
+  // eligible and well-known lines receive a modest visibility multiplier.
   weight:
-    item.productName === "Tirzepatide"
-      ? 5
-      : item.productName === "Retatrutide" ||
-          item.productName === "Semaglutide"
-        ? 4
-        : item.productName === "BPC 157" ||
-            item.productName === "TB500" ||
-            item.productName === "GHK-Cu" ||
-            item.productName === "MOTS-c"
+    (item.retailUsdCents <= 6_000
+      ? 9
+      : item.retailUsdCents <= 10_000
+        ? 6
+        : item.retailUsdCents <= 18_000
           ? 3
-          : 1,
+          : item.retailUsdCents <= 30_000
+            ? 2
+            : 1) *
+    (item.productName === "Tirzepatide" ||
+    item.productName === "Retatrutide" ||
+    item.productName === "Semaglutide" ||
+    item.productName === "BPC 157" ||
+    item.productName === "GHK-Cu" ||
+    item.productName === "MOTS-c"
+      ? 2
+      : 1),
 }));
 
 const CUSTOM_PRODUCTS: readonly Product[] = [
@@ -254,32 +282,22 @@ function dailyOrderCount(date: Date, random: () => number) {
   const monthDay = isoDate(date).slice(5);
 
   if (day === 0 || day === 6) {
-    return random() < 0.07 ? 1 : 0;
+    return randomInteger(10, 14, random);
   }
 
   if (QUIET_DATES.has(monthDay)) {
-    return random() < 0.2 ? 1 : 0;
+    return randomInteger(10, 13, random);
   }
 
-  const draw = random();
   if (day === 1) {
-    if (draw < 0.12) return 0;
-    if (draw < 0.62) return 1;
-    if (draw < 0.92) return 2;
-    return 3;
+    return randomInteger(15, 23, random);
   }
 
   if (day >= 2 && day <= 4) {
-    if (draw < 0.05) return 0;
-    if (draw < 0.4) return 1;
-    if (draw < 0.82) return 2;
-    return 3;
+    return randomInteger(20, 30, random);
   }
 
-  if (draw < 0.18) return 0;
-  if (draw < 0.75) return 1;
-  if (draw < 0.96) return 2;
-  return 3;
+  return randomInteger(14, 22, random);
 }
 
 function serviceProduct(
@@ -462,8 +480,9 @@ export function createBackfillRows(
   asOf: Date,
 ) {
   const end = startOfUtcDay(asOf);
-  const start = new Date(end);
-  start.setUTCMonth(start.getUTCMonth() - 3);
+  // Ten to thirty new rows per day means the latest 100 normally fit inside
+  // one to two weeks; no need to synthesize an unused three-month backlog.
+  const start = addUtcDays(end, -14);
   const rows: GeneratedFulfillmentRow[] = [];
   let context: GenerationContext = {
     lastBulkAt: null,

@@ -126,7 +126,7 @@ test("configures a durable daily incremental ledger", async () => {
   assert.equal(JSON.parse(hosting).d1, "DB");
   assert.match(generator, /DISPLAY_LIMIT = 100/);
   assert.match(generator, /UPDATE_INTERVAL_DAYS = 1/);
-  assert.match(generator, /LEDGER_VERSION = "daily-v3-quote-pricing"/);
+  assert.match(generator, /LEDGER_VERSION = "daily-v4-10-30-orders"/);
   assert.match(generator, /createBackfillRows/);
   assert.match(generator, /createDailyRows/);
   assert.match(generator, /currentFulfillmentStatus/);
@@ -138,10 +138,11 @@ test("configures a durable daily incremental ledger", async () => {
   assert.match(generator, /Mexico/);
   assert.match(route, /clearPreviousHistoryOnce/);
   assert.match(route, /LAST_GENERATED_KEY/);
-  assert.match(route, /DELETE FROM fulfillment_cases WHERE is_sample = 1/);
+  assert.match(route, /pruneIllustrativeRows/);
+  assert.match(route, /ORDER BY occurred_at DESC, id DESC/);
   assert.match(route, /manualFulfillmentOrders/);
-  assert.match(route, /\[\.\.\.manualRecords, \.\.\.sampleRecords\]/);
-  assert.match(route, /desc\(manualFulfillmentOrders\.createdAt\)/);
+  assert.match(route, /mergeFulfillmentRecords/);
+  assert.match(generator, /right\.occurredAt\.localeCompare\(left\.occurredAt\)/);
   assert.match(route, /dataMode: "mixed_workflow"/);
   assert.match(route, /onConflictDoNothing/);
   assert.doesNotMatch(route, /\.update\(fulfillmentCases\)/);
@@ -150,7 +151,7 @@ test("configures a durable daily incremental ledger", async () => {
   assert.match(route, /discountBps/);
   assert.match(route, /row\.service === "catalogue" \? 0/);
   assert.match(route, /cataloguePricing\?\.amountUsdCents/);
-  assert.match(route, /setUTCMonth\(cutoff\.getUTCMonth\(\) - 3\)/);
+  assert.doesNotMatch(route, /setUTCMonth\(cutoff\.getUTCMonth\(\) - 3\)/);
   assert.doesNotMatch(route, /eq\(fulfillmentCases\.cycleKey/);
   assert.match(schema, /fulfillment_ledger_meta/);
   assert.match(schema, /product_name/);
@@ -160,11 +161,13 @@ test("configures a durable daily incremental ledger", async () => {
   assert.match(schema, /testing_fee_usd_cents/);
   assert.match(schema, /logistics_fee_usd_cents/);
   assert.match(schema, /manual_fulfillment_orders/);
+  assert.match(schema, /manual_fulfillment_order_items/);
   assert.match(schema, /is_published/);
   assert.match(schema, /retail_unit_price_usd_cents/);
   assert.match(schema, /discount_bps/);
   assert.match(database, /CREATE TABLE IF NOT EXISTS fulfillment_ledger_meta/);
   assert.match(database, /CREATE TABLE IF NOT EXISTS manual_fulfillment_orders/);
+  assert.match(database, /CREATE TABLE IF NOT EXISTS manual_fulfillment_order_items/);
 });
 
 test("renders the dedicated fulfillment page", async () => {
@@ -198,18 +201,20 @@ test("renders the private real-order administration page", async () => {
   assert.match(adminPage, /\/api\/admin\/orders/);
   assert.match(adminPage, /PRODUCT_CATALOG/);
   assert.match(adminPage, /自动计算总额/);
-  assert.match(adminPage, /目录产品仅计算产品金额/);
+  assert.match(adminPage, /目录产品仅计算全部产品金额/);
+  assert.match(adminPage, /添加另一个产品/);
+  assert.doesNotMatch(adminPage, /运费（USD/);
   assert.match(adminPage, /disabled=\{catalogueDraft\}/);
   assert.match(adminPage, /window\.confirm/);
   assert.match(adminPage, /删除订单/);
   assert.match(adminRoute, /manual_fulfillment_orders/);
   assert.doesNotMatch(adminRoute, /fulfillmentCases/);
   assert.match(adminRoute, /findCatalogVariant/);
-  assert.match(adminRoute, /calculateOrderPricing/);
-  assert.match(adminRoute, /service === "catalogue" \? 0/);
+  assert.match(adminRoute, /calculateMultiItemOrderPricing/);
+  assert.match(adminRoute, /manual_fulfillment_order_items/);
   assert.match(adminRoute, /export async function DELETE/);
   assert.match(adminRoute, /DELETE FROM manual_fulfillment_orders WHERE id = \?/);
-  assert.match(adminRoute, /ORDER BY created_at DESC, id DESC/);
+  assert.match(adminRoute, /ORDER BY occurred_at DESC, created_at DESC, id DESC/);
   assert.match(auth, /FULFILLMENT_ADMIN_KEY/);
   assert.match(auth, /Bearer/);
   assert.equal((catalogue.match(/\{ sku:/g) ?? []).length, 96);

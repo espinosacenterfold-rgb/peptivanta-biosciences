@@ -98,3 +98,30 @@ export const manualFulfillmentOrders = sqliteTable(
     index("manual_fulfillment_orders_published_idx").on(table.isPublished),
   ],
 );
+
+/**
+ * Product lines belonging to a real order. Keeping lines in a child table
+ * allows one customer order to contain several catalogue products and
+ * specifications without flattening them into an ambiguous text field.
+ */
+export const manualFulfillmentOrderItems = sqliteTable(
+  "manual_fulfillment_order_items",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => manualFulfillmentOrders.id, { onDelete: "cascade" }),
+    sku: text("sku").notNull(),
+    productName: text("product_name").notNull(),
+    specification: text("specification").notNull(),
+    quantityUnits: integer("quantity_units").notNull(),
+    retailUnitPriceUsdCents: integer("retail_unit_price_usd_cents").notNull(),
+    discountedUnitPriceUsdCents: integer("discounted_unit_price_usd_cents")
+      .notNull(),
+    lineAmountUsdCents: integer("line_amount_usd_cents").notNull(),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => [
+    index("manual_fulfillment_order_items_order_id_idx").on(table.orderId),
+  ],
+);

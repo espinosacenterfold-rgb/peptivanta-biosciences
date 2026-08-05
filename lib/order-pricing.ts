@@ -75,6 +75,35 @@ export type PricingResult = {
   amountUsdCents: number;
 };
 
+export type MultiItemPricingInput = {
+  items: readonly {
+    sku: string;
+    productName: string;
+    specification: string;
+    retailUnitPriceUsdCents: number;
+    quantityUnits: number;
+  }[];
+  service: PricingService;
+  serviceFeeUsdCents?: number;
+  deductionUsdCents?: number;
+};
+
+export type MultiItemPricingResult = {
+  items: Array<
+    MultiItemPricingInput["items"][number] & {
+      discountedUnitPriceUsdCents: number;
+      lineAmountUsdCents: number;
+    }
+  >;
+  quantityUnits: number;
+  retailSubtotalUsdCents: number;
+  discountBps: number;
+  discountUsdCents: number;
+  serviceFeeUsdCents: number;
+  deductionUsdCents: number;
+  amountUsdCents: number;
+};
+
 /**
  * Mirrors the supplied order application:
  * subtotal - percentage discount + shipping/service fees - extra deduction.
@@ -125,6 +154,79 @@ export function calculateOrderPricing(input: PricingInput): PricingResult {
     ),
     serviceFeeUsdCents,
     shippingFeeUsdCents,
+    deductionUsdCents,
+    amountUsdCents,
+  };
+}
+
+/**
+ * Prices a mixed-product order using the total number of boxes to select the
+ * volume tier, then applies that same tier to every catalogue line. Freight is
+ * deliberately excluded from website order values and remains an off-ledger
+ * quotation item.
+ */
+export function calculateMultiItemOrderPricing(
+  input: MultiItemPricingInput,
+): MultiItemPricingResult {
+  if (input.items.length === 0) {
+    throw new Error("At least one product line is required.");
+  }
+
+  const quantityUnits = input.items.reduce(
+    (sum, item) => sum + Math.max(1, Math.floor(item.quantityUnits)),
+    0,
+  );
+  const discountBps =
+    input.service === "custom" ? 0 : volumeDiscountBps(quantityUnits);
+  const items = input.items.map((item) => {
+    const retailUnitPriceUsdCents = Math.max(
+      1,
+      Math.round(item.retailUnitPriceUsdCents),
+    );
+    const lineQuantity = Math.max(1, Math.floor(item.quantityUnits));
+    const discountedUnitPriceUsdCents = Math.round(
+      (retailUnitPriceUsdCents * (10_000 - discountBps)) / 10_000,
+    );
+    return {
+      ...item,
+      retailUnitPriceUsdCents,
+      quantityUnits: lineQuantity,
+      discountedUnitPriceUsdCents,
+      lineAmountUsdCents: discountedUnitPriceUsdCents * lineQuantity,
+    };
+  });
+  const retailSubtotalUsdCents = items.reduce(
+    (sum, item) =>
+      sum + item.retailUnitPriceUsdCents * item.quantityUnits,
+    0,
+  );
+  const discountedProductTotalUsdCents = items.reduce(
+    (sum, item) => sum + item.lineAmountUsdCents,
+    0,
+  );
+  const serviceFeeUsdCents = Math.max(
+    0,
+    Math.round(input.serviceFeeUsdCents ?? 0),
+  );
+  const deductionUsdCents = Math.max(
+    0,
+    Math.round(input.deductionUsdCents ?? 0),
+  );
+  const amountUsdCents = Math.max(
+    0,
+    discountedProductTotalUsdCents +
+      serviceFeeUsdCents -
+      deductionUsdCents,
+  );
+
+  return {
+    items,
+    quantityUnits,
+    retailSubtotalUsdCents,
+    discountBps,
+    discountUsdCents:
+      retailSubtotalUsdCents - discountedProductTotalUsdCents,
+    serviceFeeUsdCents,
     deductionUsdCents,
     amountUsdCents,
   };

@@ -148,6 +148,20 @@ export async function ensureFulfillmentSchema() {
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
       )
     `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS manual_fulfillment_order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        order_id INTEGER NOT NULL REFERENCES manual_fulfillment_orders(id) ON DELETE CASCADE,
+        sku TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        specification TEXT NOT NULL,
+        quantity_units INTEGER NOT NULL,
+        retail_unit_price_usd_cents INTEGER NOT NULL,
+        discounted_unit_price_usd_cents INTEGER NOT NULL,
+        line_amount_usd_cents INTEGER NOT NULL,
+        position INTEGER DEFAULT 0 NOT NULL
+      )
+    `),
     d1.prepare(
       "CREATE INDEX IF NOT EXISTS fulfillment_cases_occurred_at_idx ON fulfillment_cases (occurred_at)",
     ),
@@ -159,6 +173,9 @@ export async function ensureFulfillmentSchema() {
     ),
     d1.prepare(
       "CREATE INDEX IF NOT EXISTS manual_fulfillment_orders_published_idx ON manual_fulfillment_orders (is_published)",
+    ),
+    d1.prepare(
+      "CREATE INDEX IF NOT EXISTS manual_fulfillment_order_items_order_id_idx ON manual_fulfillment_order_items (order_id)",
     ),
   ]);
 

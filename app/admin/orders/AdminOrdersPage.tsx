@@ -7,7 +7,7 @@ import {
   PRODUCT_CATEGORY_LABELS,
 } from "../../../lib/product-catalog.ts";
 import {
-  calculateOrderPricing,
+  calculateMultiItemOrderPricing,
   orderProfileForQuantity,
 } from "../../../lib/order-pricing.ts";
 import { siteConfig } from "../../../site.config";
@@ -37,13 +37,31 @@ type ManualOrder = {
   retailUnitPriceUsdCents: number;
   discountBps: number;
   serviceFeeUsdCents: number;
-  shippingFeeUsdCents: number;
   deductionUsdCents: number;
   amountUsdCents: number;
   status: Status;
   isPublished: boolean | number;
   createdAt: string;
   updatedAt: string;
+  items: ManualOrderItem[];
+};
+
+type ManualOrderItem = {
+  id?: number;
+  sku: string;
+  productName: string;
+  specification: string;
+  quantityUnits: number;
+  retailUnitPriceUsdCents: number;
+  discountedUnitPriceUsdCents: number;
+  lineAmountUsdCents: number;
+};
+
+type DraftItem = {
+  key: string;
+  sku: string;
+  productName: string;
+  quantityUnits: string;
 };
 
 type OrderResponse = {
@@ -86,16 +104,22 @@ const productNames = Array.from(
   new Set(PRODUCT_CATALOG.map((item) => item.productName)),
 ).sort((left, right) => left.localeCompare(right, "en"));
 
+function newDraftItem(key = "line-1"): DraftItem {
+  return {
+    key,
+    sku: firstCatalogItem.sku,
+    productName: firstCatalogItem.productName,
+    quantityUnits: "1",
+  };
+}
+
 const emptyDraft = () => ({
   reference: "",
   occurredAt: new Date().toISOString().slice(0, 10),
   destination: "United States" as Market,
   service: "catalogue" as Service,
-  sku: firstCatalogItem.sku,
-  productName: firstCatalogItem.productName,
-  quantityUnits: "1",
+  items: [newDraftItem()],
   serviceFeeUsd: "0",
-  shippingFeeUsd: "0",
   deductionUsd: "0",
   status: "confirmed" as Status,
   isPublished: true,
@@ -126,43 +150,42 @@ export default function AdminOrdersPage() {
     () => orders.filter((order) => Boolean(order.isPublished)).length,
     [orders],
   );
-  const draftVariants = useMemo(
+  const selectedDraftProducts = useMemo(
     () =>
-      PRODUCT_CATALOG.filter(
-        (item) => item.productName === draft.productName,
+      draft.items.map(
+        (draftItem) =>
+          PRODUCT_CATALOG.find(
+            (catalogItem) =>
+              catalogItem.sku === draftItem.sku &&
+              catalogItem.productName === draftItem.productName,
+          ) ?? firstCatalogItem,
       ),
-    [draft.productName],
-  );
-  const selectedDraftProduct = useMemo(
-    () =>
-      draftVariants.find((item) => item.sku === draft.sku) ??
-      draftVariants[0] ??
-      firstCatalogItem,
-    [draft.sku, draftVariants],
+    [draft.items],
   );
   const catalogueDraft = draft.service === "catalogue";
   const draftPricing = useMemo(
     () =>
-      calculateOrderPricing({
-        retailUnitPriceUsdCents: selectedDraftProduct.retailUsdCents,
-        quantityUnits: Number(draft.quantityUnits) || 1,
+      calculateMultiItemOrderPricing({
+        items: selectedDraftProducts.map((item, index) => ({
+          sku: item.sku,
+          productName: item.productName,
+          specification: item.specification,
+          retailUnitPriceUsdCents: item.retailUsdCents,
+          quantityUnits: Number(draft.items[index]?.quantityUnits) || 1,
+        })),
         service: draft.service,
         serviceFeeUsdCents: catalogueDraft
           ? 0
           : usdToCents(draft.serviceFeeUsd),
-        shippingFeeUsdCents: catalogueDraft
-          ? 0
-          : usdToCents(draft.shippingFeeUsd),
         deductionUsdCents: usdToCents(draft.deductionUsd),
       }),
     [
       catalogueDraft,
       draft.deductionUsd,
-      draft.quantityUnits,
+      draft.items,
       draft.service,
       draft.serviceFeeUsd,
-      draft.shippingFeeUsd,
-      selectedDraftProduct,
+      selectedDraftProducts,
     ],
   );
 
@@ -219,16 +242,15 @@ export default function AdminOrdersPage() {
     try {
       await adminRequest("POST", {
         ...draft,
-        sku: selectedDraftProduct.sku,
-        productName: selectedDraftProduct.productName,
-        specification: selectedDraftProduct.specification,
-        quantityUnits: Number(draft.quantityUnits),
+        items: selectedDraftProducts.map((item, index) => ({
+          sku: item.sku,
+          productName: item.productName,
+          specification: item.specification,
+          quantityUnits: Number(draft.items[index]?.quantityUnits),
+        })),
         serviceFeeUsdCents: catalogueDraft
           ? 0
           : usdToCents(draft.serviceFeeUsd),
-        shippingFeeUsdCents: catalogueDraft
-          ? 0
-          : usdToCents(draft.shippingFeeUsd),
         deductionUsdCents: usdToCents(draft.deductionUsd),
       });
       setDraft(emptyDraft());
@@ -238,6 +260,35 @@ export default function AdminOrdersPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function updateDraftItem(key: string, changes: Partial<DraftItem>) {
+    setDraft((current) => ({
+      ...current,
+      items: current.items.map((item) =>
+        item.key === key ? { ...item, ...changes } : item,
+      ),
+    }));
+  }
+
+  function addDraftItem() {
+    setDraft((current) => ({
+      ...current,
+      items: [
+        ...current.items,
+        newDraftItem(`line-${Date.now()}-${current.items.length + 1}`),
+      ],
+    }));
+  }
+
+  function removeDraftItem(key: string) {
+    setDraft((current) => ({
+      ...current,
+      items:
+        current.items.length === 1
+          ? current.items
+          : current.items.filter((item) => item.key !== key),
+    }));
   }
 
   function updateLocalOrder(id: number, changes: Partial<ManualOrder>) {
@@ -426,7 +477,7 @@ export default function AdminOrdersPage() {
                       ...current,
                       service,
                       ...(service === "catalogue"
-                        ? { serviceFeeUsd: "0", shippingFeeUsd: "0" }
+                        ? { serviceFeeUsd: "0" }
                         : {}),
                     };
                   })
@@ -449,69 +500,111 @@ export default function AdminOrdersPage() {
                 placeholder="系统自动生成"
               />
             </label>
-            <label>
-              <span>产品名称</span>
-              <select
-                value={draft.productName}
-                onChange={(event) => {
-                  const productName = event.target.value;
-                  const firstVariant = PRODUCT_CATALOG.find(
-                    (item) => item.productName === productName,
-                  );
-                  if (firstVariant) {
-                    setDraft({
-                      ...draft,
-                      productName,
-                      sku: firstVariant.sku,
-                    });
-                  }
-                }}
+            <fieldset className="admin-product-lines">
+              <legend>
+                <span>订单产品与规格</span>
+                <small>同一个订单可以加入多个产品，价格自动同步报价表。</small>
+              </legend>
+              {draft.items.map((draftItem, index) => {
+                const variants = PRODUCT_CATALOG.filter(
+                  (item) => item.productName === draftItem.productName,
+                );
+                const selected = selectedDraftProducts[index];
+                return (
+                  <div className="admin-product-line" key={draftItem.key}>
+                    <span className="admin-product-line-number">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <label>
+                      <span>产品名称</span>
+                      <select
+                        value={draftItem.productName}
+                        onChange={(event) => {
+                          const productName = event.target.value;
+                          const firstVariant = PRODUCT_CATALOG.find(
+                            (item) => item.productName === productName,
+                          );
+                          if (firstVariant) {
+                            updateDraftItem(draftItem.key, {
+                              productName,
+                              sku: firstVariant.sku,
+                            });
+                          }
+                        }}
+                      >
+                        {productNames.map((productName) => {
+                          const item = PRODUCT_CATALOG.find(
+                            (entry) => entry.productName === productName,
+                          );
+                          return (
+                            <option value={productName} key={productName}>
+                              {productName}
+                              {item
+                                ? ` · ${PRODUCT_CATEGORY_LABELS[item.category]}`
+                                : ""}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+                    <label>
+                      <span>报价单规格与零售价</span>
+                      <select
+                        value={selected.sku}
+                        onChange={(event) =>
+                          updateDraftItem(draftItem.key, {
+                            sku: event.target.value,
+                          })
+                        }
+                      >
+                        {variants.map((item) => (
+                          <option
+                            value={item.sku}
+                            key={`${item.sku}-${item.specification}`}
+                          >
+                            {item.specification} · {item.sku} ·{" "}
+                            {usdFormatter.format(item.retailUsdCents / 100)}/盒
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>数量（盒，每盒10瓶）</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100000"
+                        step="1"
+                        value={draftItem.quantityUnits}
+                        onChange={(event) =>
+                          updateDraftItem(draftItem.key, {
+                            quantityUnits: event.target.value,
+                          })
+                        }
+                        required
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="admin-remove-product"
+                      onClick={() => removeDraftItem(draftItem.key)}
+                      disabled={draft.items.length === 1}
+                      aria-label={`删除第 ${index + 1} 个产品`}
+                    >
+                      删除
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                className="admin-add-product"
+                onClick={addDraftItem}
+                disabled={draft.items.length >= 20}
               >
-                {productNames.map((productName) => {
-                  const item = PRODUCT_CATALOG.find(
-                    (entry) => entry.productName === productName,
-                  );
-                  return (
-                    <option value={productName} key={productName}>
-                      {productName}
-                      {item
-                        ? ` · ${PRODUCT_CATEGORY_LABELS[item.category]}`
-                        : ""}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
-            <label>
-              <span>报价单规格与零售价</span>
-              <select
-                value={selectedDraftProduct.sku}
-                onChange={(event) =>
-                  setDraft({ ...draft, sku: event.target.value })
-                }
-              >
-                {draftVariants.map((item) => (
-                  <option value={item.sku} key={`${item.sku}-${item.specification}`}>
-                    {item.specification} · {item.sku} ·{" "}
-                    {usdFormatter.format(item.retailUsdCents / 100)}/盒
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>数量（盒，每盒10瓶）</span>
-              <input
-                type="number"
-                min="1"
-                max="100000"
-                step="1"
-                value={draft.quantityUnits}
-                onChange={(event) =>
-                  setDraft({ ...draft, quantityUnits: event.target.value })
-                }
-                required
-              />
-            </label>
+                ＋ 添加另一个产品
+              </button>
+            </fieldset>
             <label>
               <span>贴牌/包装/检测费（USD）</span>
               <input
@@ -523,20 +616,6 @@ export default function AdminOrdersPage() {
                 disabled={catalogueDraft}
                 onChange={(event) =>
                   setDraft({ ...draft, serviceFeeUsd: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              <span>运费（USD，报价单不含运费）</span>
-              <input
-                type="number"
-                min="0"
-                max="10000000"
-                step="0.01"
-                value={draft.shippingFeeUsd}
-                disabled={catalogueDraft}
-                onChange={(event) =>
-                  setDraft({ ...draft, shippingFeeUsd: event.target.value })
                 }
               />
             </label>
@@ -584,7 +663,7 @@ export default function AdminOrdersPage() {
               <div>
                 <span>订单规模</span>
                 <strong>
-                  {orderProfileForQuantity(Number(draft.quantityUnits) || 1)}
+                  {orderProfileForQuantity(draftPricing.quantityUnits)}
                 </strong>
               </div>
               <div className="is-total">
@@ -595,8 +674,8 @@ export default function AdminOrdersPage() {
               </div>
               <small>
                 {catalogueDraft
-                  ? "目录产品仅计算产品金额；包装、检测和运费均不计入。"
-                  : "零售价小计 − 阶梯折扣 + 服务费 + 运费 − 额外减免"}
+                  ? "目录产品仅计算全部产品金额；包装、检测和运费均不计入。"
+                  : "全部产品零售价小计 − 总盒数阶梯折扣 + 服务费 − 额外减免"}
               </small>
             </div>
             <label className="admin-checkbox">
@@ -635,10 +714,19 @@ export default function AdminOrdersPage() {
                   <header>
                     <div>
                       <code>{order.reference}</code>
-                      <h3>{order.productName}</h3>
-                      <p>
-                        {order.specification || "未填写规格"} · SKU {order.sku}
-                      </p>
+                      <h3>
+                        {order.items.length > 1
+                          ? `${order.items.length} 个产品`
+                          : order.items[0]?.productName ?? order.productName}
+                      </h3>
+                      <div className="admin-order-item-summary">
+                        {order.items.map((item) => (
+                          <p key={`${order.id}-${item.sku}-${item.specification}`}>
+                            <strong>{item.productName}</strong> · {item.specification} ·{" "}
+                            {item.quantityUnits.toLocaleString()} 盒 · SKU {item.sku}
+                          </p>
+                        ))}
+                      </div>
                     </div>
                     <strong>{usdFormatter.format(order.amountUsdCents / 100)}</strong>
                   </header>
@@ -662,10 +750,9 @@ export default function AdminOrdersPage() {
                     </div>
                     {order.service !== "catalogue" && (
                       <div>
-                        <dt>服务费/运费</dt>
+                        <dt>服务费</dt>
                         <dd>
-                          {usdFormatter.format(order.serviceFeeUsdCents / 100)} /{" "}
-                          {usdFormatter.format(order.shippingFeeUsdCents / 100)}
+                          {usdFormatter.format(order.serviceFeeUsdCents / 100)}
                         </dd>
                       </div>
                     )}

@@ -7,10 +7,12 @@ import {
   currentFulfillmentStatus,
   DISPLAY_LIMIT,
   LEDGER_VERSION,
+  mergeFulfillmentRecords,
   UPDATE_INTERVAL_DAYS,
 } from "../app/api/fulfillment-cases/generator.ts";
 import { PRODUCT_CATALOG } from "../lib/product-catalog.ts";
 import {
+  calculateMultiItemOrderPricing,
   calculateOrderPricing,
   orderProfileForQuantity,
   volumeDiscountBps,
@@ -22,7 +24,7 @@ test("daily ledger backfill is deterministic and limited to 100 records", () => 
   const first = createBackfillRows(DISPLAY_LIMIT, asOf);
   const second = createBackfillRows(DISPLAY_LIMIT, asOf);
 
-  assert.equal(LEDGER_VERSION, "daily-v3-quote-pricing");
+  assert.equal(LEDGER_VERSION, "daily-v4-10-30-orders");
   assert.equal(UPDATE_INTERVAL_DAYS, 1);
   assert.equal(first.length, 100);
   assert.deepEqual(first, second);
@@ -64,15 +66,11 @@ test("service, size, and market weights resemble a catalogue-led business", () =
   assert.ok(marketCount.Mexico > 0);
 });
 
-test("bulk orders are separated and weekend orders stay exceptional", () => {
+test("bulk orders remain separated while daily activity stays continuous", () => {
   const rows = createBackfillRows(100, asOf);
   const bulkRows = rows
     .filter((row) => row.service === "bulk")
     .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
-  const weekendRows = rows.filter((row) => {
-    const day = new Date(`${row.occurredAt}T00:00:00.000Z`).getUTCDay();
-    return day === 0 || day === 6;
-  });
 
   for (let index = 1; index < bulkRows.length; index += 1) {
     const gap =
@@ -81,7 +79,7 @@ test("bulk orders are separated and weekend orders stay exceptional", () => {
       86_400_000;
     assert.ok(gap >= 20, `bulk gap was ${gap} days`);
   }
-  assert.ok(weekendRows.length <= 5);
+  assert.ok(new Set(rows.map((row) => row.occurredAt)).size >= 4);
 });
 
 test("amounts use the official quote catalogue and volume discount ladder", () => {
@@ -144,6 +142,38 @@ test("the official catalogue and market discount tiers remain auditable", () => 
   assert.equal(quote.retailSubtotalUsdCents, 510_000);
   assert.equal(quote.discountBps, 3000);
   assert.equal(quote.amountUsdCents, 370_000);
+});
+
+test("mixed-product real orders use one total-quantity discount and no freight", () => {
+  const quote = calculateMultiItemOrderPricing({
+    items: [
+      {
+        sku: "TR5",
+        productName: "Tirzepatide",
+        specification: "5mg*10vials",
+        retailUnitPriceUsdCents: 5100,
+        quantityUnits: 2,
+      },
+      {
+        sku: "BC5",
+        productName: "BPC 157",
+        specification: "5mg*10vials",
+        retailUnitPriceUsdCents: 4600,
+        quantityUnits: 4,
+      },
+    ],
+    service: "private_label",
+    serviceFeeUsdCents: 10_000,
+    deductionUsdCents: 2_000,
+  });
+
+  assert.equal(quote.quantityUnits, 6);
+  assert.equal(quote.discountBps, 1000);
+  assert.equal(quote.items.length, 2);
+  assert.equal(quote.items[0].discountedUnitPriceUsdCents, 4590);
+  assert.equal(quote.items[1].discountedUnitPriceUsdCents, 4140);
+  assert.equal(quote.amountUsdCents, 33_740);
+  assert.ok(!("shippingFeeUsdCents" in quote));
 });
 
 test("catalogue totals contain product value only", () => {
@@ -301,13 +331,18 @@ test("non-bulk orders cannot remain open beyond fourteen calendar days", () => {
   );
 });
 
-test("daily generation is stable and can produce a quiet day", () => {
+test("daily generation is stable and produces 10-30 new rows", () => {
   const first = createDailyRows(new Date("2026-07-28T00:00:00.000Z"));
   const second = createDailyRows(new Date("2026-07-28T00:00:00.000Z"));
   assert.deepEqual(first, second);
 
-  const weekend = createDailyRows(new Date("2026-07-26T00:00:00.000Z"));
-  assert.ok(weekend.rows.length <= 1);
+  for (let offset = 0; offset < 14; offset += 1) {
+    const date = new Date("2026-07-20T00:00:00.000Z");
+    date.setUTCDate(date.getUTCDate() + offset);
+    const daily = createDailyRows(date);
+    assert.ok(daily.rows.length >= 10, `${date.toISOString()} was below 10`);
+    assert.ok(daily.rows.length <= 30, `${date.toISOString()} exceeded 30`);
+  }
 });
 
 test("the next daily update appends records without rewriting prior orders", () => {
@@ -338,4 +373,22 @@ test("the next daily update appends records without rewriting prior orders", () 
       priorRow,
     );
   }
+});
+
+test("real orders follow their business date instead of being pinned", () => {
+  const manual = [
+    { reference: "REAL-OLD", occurredAt: "2026-07-02", source: "manual" },
+    { reference: "REAL-NEW", occurredAt: "2026-07-30", source: "manual" },
+  ];
+  const samples = [
+    { reference: "SAMPLE-3", occurredAt: "2026-07-29", source: "sample" },
+    { reference: "SAMPLE-2", occurredAt: "2026-07-20", source: "sample" },
+    { reference: "SAMPLE-1", occurredAt: "2026-07-10", source: "sample" },
+  ];
+
+  const records = mergeFulfillmentRecords(manual, samples, 4);
+  assert.deepEqual(
+    records.map((record) => record.reference),
+    ["REAL-NEW", "SAMPLE-3", "SAMPLE-2", "REAL-OLD"],
+  );
 });
