@@ -80,6 +80,16 @@ export const fulfillmentGeneratorSettings = sqliteTable(
     repeatOrderRateBps: integer("repeat_order_rate_bps")
       .notNull()
       .default(3500),
+    multiProductRateBps: integer("multi_product_rate_bps")
+      .notNull()
+      .default(5000),
+    bulkGapDays: integer("bulk_gap_days").notNull().default(20),
+    repeatMinimumDays: integer("repeat_minimum_days").notNull().default(5),
+    repeatMaximumDays: integer("repeat_maximum_days").notNull().default(14),
+    marketUsWeight: integer("market_us_weight").notNull().default(48),
+    marketCaWeight: integer("market_ca_weight").notNull().default(25),
+    marketBrWeight: integer("market_br_weight").notNull().default(17),
+    marketMxWeight: integer("market_mx_weight").notNull().default(10),
     generationEnabled: integer("generation_enabled", { mode: "boolean" })
       .notNull()
       .default(true),

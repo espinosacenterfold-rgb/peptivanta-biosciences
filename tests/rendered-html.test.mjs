@@ -190,12 +190,12 @@ test("renders the dedicated fulfillment page", async () => {
   assert.match(html, /wa\.me\/19863059927/i);
 });
 
-test("renders the private real-order administration page", async () => {
-  const response = await render("/admin/orders");
+test("renders the unified fulfillment administration entry", async () => {
+  const response = await render("/admin");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /真实订单后台/);
-  assert.match(html, /模拟器不会覆盖/);
+  assert.match(html, /统一履约后台/);
+  assert.match(html, /真实订单和模拟订单之间切换/);
   assert.match(html, /name="robots" content="noindex, nofollow, nocache"/i);
 
   const [adminPage, adminRoute, auth, catalogue, pricing] = await Promise.all([
@@ -211,10 +211,12 @@ test("renders the private real-order administration page", async () => {
   assert.match(adminPage, /\/api\/admin\/orders/);
   assert.match(adminPage, /PRODUCT_CATALOG/);
   assert.match(adminPage, /自动计算总额/);
-  assert.match(adminPage, /目录产品仅计算全部产品金额/);
+  assert.match(adminPage, /其他费用不计入订单展示/);
   assert.match(adminPage, /添加另一个产品/);
   assert.doesNotMatch(adminPage, /运费（USD/);
-  assert.match(adminPage, /disabled=\{catalogueDraft\}/);
+  assert.doesNotMatch(adminPage, /贴牌\/包装\/检测费/);
+  assert.doesNotMatch(adminPage, /serviceFeeUsd/);
+  assert.match(adminPage, /href="\/admin\/generator"/);
   assert.match(adminPage, /window\.confirm/);
   assert.match(adminPage, /删除订单/);
   assert.match(adminRoute, /manual_fulfillment_orders/);
@@ -232,12 +234,12 @@ test("renders the private real-order administration page", async () => {
   assert.match(pricing, /discountBps: 4000/);
 });
 
-test("renders an isolated illustrative-order generator console", async () => {
+test("renders the expanded illustrative-order workspace", async () => {
   const response = await render("/admin/generator");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /模拟订单控制台/);
-  assert.match(html, /真实订单后台完全隔离/);
+  assert.match(html, /统一履约后台/);
+  assert.match(html, /真实订单和模拟订单之间切换/);
 
   const [page, route] = await Promise.all([
     readFile(
@@ -251,8 +253,15 @@ test("renders an isolated illustrative-order generator console", async () => {
   ]);
   assert.match(page, /贴牌 \+ 大货目标占比/);
   assert.match(page, /复购订单目标占比/);
+  assert.match(page, /多产品组装目标占比/);
+  assert.match(page, /目标市场权重/);
+  assert.match(page, /大宗订单最短间隔/);
+  assert.match(page, /同步今日记录并刷新统计/);
+  assert.match(page, /href="\/admin"/);
   assert.match(page, /\/api\/admin\/generator/);
   assert.match(route, /fulfillment_generator_settings/);
+  assert.match(route, /multi_product_rate_bps/);
+  assert.match(route, /market_us_weight/);
   assert.doesNotMatch(route, /manual_fulfillment_orders/);
 });
 

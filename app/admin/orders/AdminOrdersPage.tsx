@@ -36,7 +36,6 @@ type ManualOrder = {
   quantityUnits: number;
   retailUnitPriceUsdCents: number;
   discountBps: number;
-  serviceFeeUsdCents: number;
   deductionUsdCents: number;
   amountUsdCents: number;
   status: Status;
@@ -119,7 +118,6 @@ const emptyDraft = () => ({
   destination: "United States" as Market,
   service: "catalogue" as Service,
   items: [newDraftItem()],
-  serviceFeeUsd: "0",
   deductionUsd: "0",
   status: "confirmed" as Status,
   isPublished: true,
@@ -141,9 +139,23 @@ export default function AdminOrdersPage() {
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(SESSION_KEY);
-    // Hydrate the tab-scoped credential only after the client is available.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (stored) setAdminKey(stored);
+    if (!stored) return;
+    // Both admin workspaces share this one tab-scoped sign-in. Returning from
+    // generator controls therefore opens the real-order workspace directly.
+    void Promise.resolve().then(async () => {
+      setAdminKey(stored);
+      setBusy(true);
+      try {
+        await adminRequest("GET", undefined, stored);
+        setAuthenticated(true);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "验证失败。");
+      } finally {
+        setBusy(false);
+      }
+    });
+    // adminRequest is intentionally a component-local transport helper.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const publishedCount = useMemo(
@@ -162,7 +174,6 @@ export default function AdminOrdersPage() {
       ),
     [draft.items],
   );
-  const catalogueDraft = draft.service === "catalogue";
   const draftPricing = useMemo(
     () =>
       calculateMultiItemOrderPricing({
@@ -174,17 +185,12 @@ export default function AdminOrdersPage() {
           quantityUnits: Number(draft.items[index]?.quantityUnits) || 1,
         })),
         service: draft.service,
-        serviceFeeUsdCents: catalogueDraft
-          ? 0
-          : usdToCents(draft.serviceFeeUsd),
         deductionUsdCents: usdToCents(draft.deductionUsd),
       }),
     [
-      catalogueDraft,
       draft.deductionUsd,
       draft.items,
       draft.service,
-      draft.serviceFeeUsd,
       selectedDraftProducts,
     ],
   );
@@ -248,9 +254,6 @@ export default function AdminOrdersPage() {
           specification: item.specification,
           quantityUnits: Number(draft.items[index]?.quantityUnits),
         })),
-        serviceFeeUsdCents: catalogueDraft
-          ? 0
-          : usdToCents(draft.serviceFeeUsd),
         deductionUsdCents: usdToCents(draft.deductionUsd),
       });
       setDraft(emptyDraft());
@@ -364,17 +367,17 @@ export default function AdminOrdersPage() {
             <img src="/logo-mark.svg" alt="" width={48} height={48} />
             <span>
               <strong>{siteConfig.brandName}</strong>
-              <small>Fulfillment Admin</small>
+              <small>Unified Fulfillment Admin</small>
             </span>
           </div>
           <p className="section-tag">PRIVATE CONSOLE</p>
-          <h1>真实订单后台</h1>
+          <h1>统一履约后台</h1>
           <p>
-            使用管理密钥进入。真实订单和模拟订单分别存储，模拟器不会覆盖这里的记录。
+            登录一次即可在真实订单和模拟订单之间切换。两类数据分别保存，互不覆盖。
           </p>
           <form onSubmit={signIn}>
             <label>
-              <span>管理密钥</span>
+              <span>统一管理密钥</span>
               <input
                 type="password"
                 value={adminKey}
@@ -385,7 +388,7 @@ export default function AdminOrdersPage() {
             </label>
             {error && <p className="admin-error">{error}</p>}
             <button type="submit" disabled={busy || !adminKey.trim()}>
-              {busy ? "正在验证…" : "进入订单后台"}
+              {busy ? "正在验证…" : "进入统一后台"}
             </button>
           </form>
           <Link href="/fulfillment">返回近期履约页面</Link>
@@ -401,12 +404,13 @@ export default function AdminOrdersPage() {
           <img src="/logo-mark.svg" alt="" width={44} height={44} />
           <span>
             <strong>{siteConfig.brandName}</strong>
-            <small>Fulfillment Admin</small>
+            <small>Unified Fulfillment Admin</small>
           </span>
         </div>
-        <nav>
-          <Link href="/admin/generator">模拟订单控制台</Link>
-          <Link href="/fulfillment" target="_blank">查看公开页面</Link>
+        <nav className="admin-console-tabs" aria-label="后台功能切换">
+          <Link href="/admin" aria-current="page">真实订单</Link>
+          <Link href="/admin/generator">模拟订单</Link>
+          <Link href="/fulfillment" target="_blank">查看公开页</Link>
           <button type="button" onClick={signOut}>退出后台</button>
         </nav>
       </header>
@@ -472,15 +476,9 @@ export default function AdminOrdersPage() {
               <select
                 value={draft.service}
                 onChange={(event) =>
-                  setDraft((current) => {
-                    const service = event.target.value as Service;
-                    return {
-                      ...current,
-                      service,
-                      ...(service === "catalogue"
-                        ? { serviceFeeUsd: "0" }
-                        : {}),
-                    };
+                  setDraft({
+                    ...draft,
+                    service: event.target.value as Service,
                   })
                 }
               >
@@ -607,20 +605,6 @@ export default function AdminOrdersPage() {
               </button>
             </fieldset>
             <label>
-              <span>贴牌/包装/检测费（USD）</span>
-              <input
-                type="number"
-                min="0"
-                max="10000000"
-                step="0.01"
-                value={draft.serviceFeeUsd}
-                disabled={catalogueDraft}
-                onChange={(event) =>
-                  setDraft({ ...draft, serviceFeeUsd: event.target.value })
-                }
-              />
-            </label>
-            <label>
               <span>额外减免（USD，可选）</span>
               <input
                 type="number"
@@ -674,9 +658,7 @@ export default function AdminOrdersPage() {
                 </strong>
               </div>
               <small>
-                {catalogueDraft
-                  ? "目录产品仅计算全部产品金额；包装、检测和运费均不计入。"
-                  : "全部产品零售价小计 − 总盒数阶梯折扣 + 服务费 − 额外减免"}
+                此处仅计算报价表产品金额、总盒数阶梯折扣与额外减免，其他费用不计入订单展示。
               </small>
             </div>
             <label className="admin-checkbox">
@@ -749,14 +731,6 @@ export default function AdminOrdersPage() {
                       <dt>数量折扣</dt>
                       <dd>{(order.discountBps / 100).toFixed(0)}%</dd>
                     </div>
-                    {order.service !== "catalogue" && (
-                      <div>
-                        <dt>服务费</dt>
-                        <dd>
-                          {usdFormatter.format(order.serviceFeeUsdCents / 100)}
-                        </dd>
-                      </div>
-                    )}
                     {order.deductionUsdCents > 0 && (
                       <div>
                         <dt>额外减免</dt>

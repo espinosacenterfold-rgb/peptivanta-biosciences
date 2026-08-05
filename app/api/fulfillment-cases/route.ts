@@ -76,6 +76,10 @@ async function generatorSettings(): Promise<GeneratorSettings> {
     .prepare(
       `SELECT display_limit, daily_minimum, daily_maximum,
               large_order_rate_bps, repeat_order_rate_bps,
+              multi_product_rate_bps, bulk_gap_days,
+              repeat_minimum_days, repeat_maximum_days,
+              market_us_weight, market_ca_weight,
+              market_br_weight, market_mx_weight,
               generation_enabled
        FROM fulfillment_generator_settings WHERE id = 1`,
     )
@@ -85,6 +89,14 @@ async function generatorSettings(): Promise<GeneratorSettings> {
       daily_maximum: number;
       large_order_rate_bps: number;
       repeat_order_rate_bps: number;
+      multi_product_rate_bps: number;
+      bulk_gap_days: number;
+      repeat_minimum_days: number;
+      repeat_maximum_days: number;
+      market_us_weight: number;
+      market_ca_weight: number;
+      market_br_weight: number;
+      market_mx_weight: number;
       generation_enabled: number;
     }>();
   return normalizeGeneratorSettings(
@@ -95,6 +107,14 @@ async function generatorSettings(): Promise<GeneratorSettings> {
           dailyMaximum: row.daily_maximum,
           largeOrderRateBps: row.large_order_rate_bps,
           repeatOrderRateBps: row.repeat_order_rate_bps,
+          multiProductRateBps: row.multi_product_rate_bps,
+          bulkGapDays: row.bulk_gap_days,
+          repeatMinimumDays: row.repeat_minimum_days,
+          repeatMaximumDays: row.repeat_maximum_days,
+          marketUsWeight: row.market_us_weight,
+          marketCaWeight: row.market_ca_weight,
+          marketBrWeight: row.market_br_weight,
+          marketMxWeight: row.market_mx_weight,
           generationEnabled: Boolean(row.generation_enabled),
         }
       : DEFAULT_GENERATOR_SETTINGS,
@@ -480,12 +500,12 @@ export async function GET() {
         unitPriceUsdCents: firstItem.discountedUnitPriceUsdCents,
         retailUnitPriceUsdCents: firstItem.retailUnitPriceUsdCents,
         discountBps: row.discountBps,
-        packagingFeeUsdCents: row.serviceFeeUsdCents,
+        packagingFeeUsdCents: 0,
         testingFeeUsdCents: 0,
         logisticsFeeUsdCents: 0,
         amountUsdCents: Math.max(
           0,
-          productTotal + row.serviceFeeUsdCents - row.deductionUsdCents,
+          productTotal - row.deductionUsdCents,
         ),
         status: row.status,
         isSample: false,

@@ -107,6 +107,41 @@ const manualOrderAddedColumns = [
   },
 ] as const;
 
+const generatorSettingAddedColumns = [
+  {
+    name: "multi_product_rate_bps",
+    sql: "ALTER TABLE fulfillment_generator_settings ADD COLUMN multi_product_rate_bps INTEGER DEFAULT 5000 NOT NULL",
+  },
+  {
+    name: "bulk_gap_days",
+    sql: "ALTER TABLE fulfillment_generator_settings ADD COLUMN bulk_gap_days INTEGER DEFAULT 20 NOT NULL",
+  },
+  {
+    name: "repeat_minimum_days",
+    sql: "ALTER TABLE fulfillment_generator_settings ADD COLUMN repeat_minimum_days INTEGER DEFAULT 5 NOT NULL",
+  },
+  {
+    name: "repeat_maximum_days",
+    sql: "ALTER TABLE fulfillment_generator_settings ADD COLUMN repeat_maximum_days INTEGER DEFAULT 14 NOT NULL",
+  },
+  {
+    name: "market_us_weight",
+    sql: "ALTER TABLE fulfillment_generator_settings ADD COLUMN market_us_weight INTEGER DEFAULT 48 NOT NULL",
+  },
+  {
+    name: "market_ca_weight",
+    sql: "ALTER TABLE fulfillment_generator_settings ADD COLUMN market_ca_weight INTEGER DEFAULT 25 NOT NULL",
+  },
+  {
+    name: "market_br_weight",
+    sql: "ALTER TABLE fulfillment_generator_settings ADD COLUMN market_br_weight INTEGER DEFAULT 17 NOT NULL",
+  },
+  {
+    name: "market_mx_weight",
+    sql: "ALTER TABLE fulfillment_generator_settings ADD COLUMN market_mx_weight INTEGER DEFAULT 10 NOT NULL",
+  },
+] as const;
+
 export async function ensureFulfillmentSchema() {
   const d1 = await getD1Binding();
   await d1.batch([
@@ -152,6 +187,14 @@ export async function ensureFulfillmentSchema() {
         daily_maximum INTEGER DEFAULT 30 NOT NULL,
         large_order_rate_bps INTEGER DEFAULT 1500 NOT NULL,
         repeat_order_rate_bps INTEGER DEFAULT 3500 NOT NULL,
+        multi_product_rate_bps INTEGER DEFAULT 5000 NOT NULL,
+        bulk_gap_days INTEGER DEFAULT 20 NOT NULL,
+        repeat_minimum_days INTEGER DEFAULT 5 NOT NULL,
+        repeat_maximum_days INTEGER DEFAULT 14 NOT NULL,
+        market_us_weight INTEGER DEFAULT 48 NOT NULL,
+        market_ca_weight INTEGER DEFAULT 25 NOT NULL,
+        market_br_weight INTEGER DEFAULT 17 NOT NULL,
+        market_mx_weight INTEGER DEFAULT 10 NOT NULL,
         generation_enabled INTEGER DEFAULT 1 NOT NULL,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
       )
@@ -231,6 +274,19 @@ export async function ensureFulfillmentSchema() {
 
   for (const column of manualOrderAddedColumns) {
     if (!manualColumns.has(column.name)) {
+      await d1.prepare(column.sql).run();
+    }
+  }
+
+  const generatorTableInfo = await d1
+    .prepare("PRAGMA table_info(fulfillment_generator_settings)")
+    .all<{ name: string }>();
+  const generatorColumns = new Set(
+    generatorTableInfo.results.map((column) => column.name),
+  );
+
+  for (const column of generatorSettingAddedColumns) {
+    if (!generatorColumns.has(column.name)) {
       await d1.prepare(column.sql).run();
     }
   }

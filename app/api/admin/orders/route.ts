@@ -48,7 +48,6 @@ type ManualOrderInput = {
   productName?: unknown;
   specification?: unknown;
   quantityUnits?: unknown;
-  serviceFeeUsdCents?: unknown;
   deductionUsdCents?: unknown;
   status?: unknown;
   isPublished?: unknown;
@@ -67,7 +66,6 @@ type StoredOrder = {
   quantityUnits: number;
   retailUnitPriceUsdCents: number;
   discountBps: number;
-  serviceFeeUsdCents: number;
   deductionUsdCents: number;
   status: string;
   isPublished: number;
@@ -218,10 +216,6 @@ function validateInput(body: ManualOrderInput, includeId: boolean) {
     duplicateKeys.add(key);
   }
 
-  const serviceFeeUsdCents =
-    service === "catalogue"
-      ? 0
-      : moneyField(body.serviceFeeUsdCents, "Service/packaging fee");
   const deductionUsdCents = moneyField(
     body.deductionUsdCents,
     "Extra deduction",
@@ -229,7 +223,6 @@ function validateInput(body: ManualOrderInput, includeId: boolean) {
   const pricing = calculateMultiItemOrderPricing({
     items,
     service: service as PricingService,
-    serviceFeeUsdCents,
     deductionUsdCents,
   });
   if (pricing.amountUsdCents < 1) {
@@ -250,7 +243,9 @@ function validateInput(body: ManualOrderInput, includeId: boolean) {
     quantityUnits: pricing.quantityUnits,
     retailUnitPriceUsdCents: firstItem.retailUnitPriceUsdCents,
     discountBps: pricing.discountBps,
-    serviceFeeUsdCents,
+    // Real-order totals intentionally contain product value only. Private
+    // label, packing, testing and freight are handled outside this ledger.
+    serviceFeeUsdCents: 0,
     deductionUsdCents,
     amountUsdCents: pricing.amountUsdCents,
     status,
@@ -311,7 +306,6 @@ async function readOrders() {
            quantity_units AS quantityUnits,
            retail_unit_price_usd_cents AS retailUnitPriceUsdCents,
            discount_bps AS discountBps,
-           service_fee_usd_cents AS serviceFeeUsdCents,
            deduction_usd_cents AS deductionUsdCents,
            status,
            is_published AS isPublished,
@@ -379,10 +373,9 @@ async function readOrders() {
     );
     return {
       ...order,
-      shippingFeeUsdCents: 0,
       amountUsdCents: Math.max(
         0,
-        productTotal + order.serviceFeeUsdCents - order.deductionUsdCents,
+        productTotal - order.deductionUsdCents,
       ),
       items,
     };

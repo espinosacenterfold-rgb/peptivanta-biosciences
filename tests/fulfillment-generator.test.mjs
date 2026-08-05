@@ -6,9 +6,11 @@ import {
   createDailyRows,
   createHistoricalRowsBefore,
   currentFulfillmentStatus,
+  DEFAULT_GENERATOR_SETTINGS,
   DISPLAY_LIMIT,
   LEDGER_VERSION,
   mergeFulfillmentRecords,
+  normalizeGeneratorSettings,
   UPDATE_INTERVAL_DAYS,
 } from "../app/api/fulfillment-cases/generator.ts";
 import { PRODUCT_CATALOG } from "../lib/product-catalog.ts";
@@ -395,6 +397,46 @@ test("daily generation is stable and produces 10-30 new rows", () => {
     const daily = createDailyRows(date);
     assert.ok(daily.rows.length >= 10, `${date.toISOString()} was below 10`);
     assert.ok(daily.rows.length <= 30, `${date.toISOString()} exceeded 30`);
+  }
+});
+
+test("expanded generator controls change only newly generated business mix", () => {
+  const settings = normalizeGeneratorSettings({
+    ...DEFAULT_GENERATOR_SETTINGS,
+    multiProductRateBps: 0,
+    bulkGapDays: 60,
+    repeatMinimumDays: 10,
+    repeatMaximumDays: 30,
+    marketUsWeight: 100,
+    marketCaWeight: 1,
+    marketBrWeight: 1,
+    marketMxWeight: 1,
+  });
+  const rows = createBackfillRows(DISPLAY_LIMIT, asOf, settings);
+  const byReference = new Map(rows.map((row) => [row.reference, row]));
+  const bulkRows = rows
+    .filter((row) => row.service === "bulk")
+    .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
+
+  assert.ok(
+    rows.filter((row) => row.destination === "United States").length >= 270,
+  );
+  assert.ok(rows.every((row) => JSON.parse(row.itemsJson).length === 1));
+  for (let index = 1; index < bulkRows.length; index += 1) {
+    const gap =
+      (Date.parse(`${bulkRows[index].occurredAt}T00:00:00.000Z`) -
+        Date.parse(`${bulkRows[index - 1].occurredAt}T00:00:00.000Z`)) /
+      86_400_000;
+    assert.ok(gap >= 60, `configured bulk gap was ${gap} days`);
+  }
+  for (const row of rows.filter((candidate) => candidate.orderKind === "repeat")) {
+    const parent = byReference.get(row.repeatOfReference);
+    assert.ok(parent);
+    const age =
+      (Date.parse(`${row.occurredAt}T00:00:00.000Z`) -
+        Date.parse(`${parent.occurredAt}T00:00:00.000Z`)) /
+      86_400_000;
+    assert.ok(age >= 10 && age <= 30, `configured repeat age was ${age}`);
   }
 });
 
