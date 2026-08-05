@@ -190,8 +190,8 @@ test("renders the dedicated fulfillment page", async () => {
   assert.match(html, /wa\.me\/19863059927/i);
 });
 
-test("renders the unified fulfillment administration entry", async () => {
-  const response = await render("/admin");
+test("renders the deeper unified fulfillment administration entry", async () => {
+  const response = await render("/admin/orders");
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /统一履约后台/);
@@ -234,6 +234,11 @@ test("renders the unified fulfillment administration entry", async () => {
   assert.match(pricing, /discountBps: 4000/);
 });
 
+test("does not expose a top-level admin landing page", async () => {
+  const response = await render("/admin");
+  assert.equal(response.status, 404);
+});
+
 test("renders the expanded illustrative-order workspace", async () => {
   const response = await render("/admin/generator");
   assert.equal(response.status, 200);
@@ -257,7 +262,7 @@ test("renders the expanded illustrative-order workspace", async () => {
   assert.match(page, /目标市场权重/);
   assert.match(page, /大宗订单最短间隔/);
   assert.match(page, /同步今日记录并刷新统计/);
-  assert.match(page, /href="\/admin"/);
+  assert.match(page, /href="\/admin\/orders"/);
   assert.match(page, /\/api\/admin\/generator/);
   assert.match(route, /fulfillment_generator_settings/);
   assert.match(route, /multi_product_rate_bps/);
