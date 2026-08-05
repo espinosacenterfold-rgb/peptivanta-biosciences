@@ -32,6 +32,8 @@ type FulfillmentRecord = {
     | string;
   isSample: boolean;
   source: "sample" | "manual";
+  orderKind?: "new" | "repeat";
+  repeatOfReference?: string;
   items?: Array<{
     productName: string;
     specification: string;
@@ -142,7 +144,7 @@ const content = {
     refresh: "Refresh records",
     updated: "Ledger date",
     nextUpdate: "Next daily update",
-    notice: "Illustrative workflow data, showing the latest 100 new orders.",
+    notice: "Illustrative workflow data, showing the latest {count} new orders.",
     loading: "Loading recent records…",
     error: "Recent records are temporarily unavailable.",
     empty: "No published records are available for this period.",
@@ -150,7 +152,7 @@ const content = {
       "Date",
       "Reference",
       "Destination",
-      "Product / specification",
+      "Product configuration / specification",
       "Service",
       "Order size",
       "Amount (USD)",
@@ -184,6 +186,10 @@ const content = {
     volumeDiscount: "volume discount",
     perBox: "box",
     productLines: "product lines",
+    assembly: "product assembly",
+    firstOrder: "First order",
+    repeatOrder: "Repeat order",
+    repeatOf: "Reorder of",
     fees: "packaging, testing & logistics",
   },
   pt: {
@@ -196,7 +202,7 @@ const content = {
     refresh: "Atualizar",
     updated: "Data do registro",
     nextUpdate: "Próxima atualização diária",
-    notice: "Dados ilustrativos do fluxo, mostrando os 100 pedidos mais recentes.",
+    notice: "Dados ilustrativos do fluxo, mostrando os {count} pedidos mais recentes.",
     loading: "Carregando registros…",
     error: "Os registros estão temporariamente indisponíveis.",
     empty: "Não há registros publicados para este período.",
@@ -204,7 +210,7 @@ const content = {
       "Data",
       "Referência",
       "Destino",
-      "Produto / especificação",
+      "Configuração de produtos / especificação",
       "Serviço",
       "Faixa do pedido",
       "Valor (USD)",
@@ -238,6 +244,10 @@ const content = {
     volumeDiscount: "desconto por volume",
     perBox: "caixa",
     productLines: "linhas de produtos",
+    assembly: "combinação de produtos",
+    firstOrder: "Primeiro pedido",
+    repeatOrder: "Pedido recorrente",
+    repeatOf: "Reposição de",
     fees: "embalagem, testes e logística",
   },
   es: {
@@ -250,7 +260,7 @@ const content = {
     refresh: "Actualizar",
     updated: "Fecha del registro",
     nextUpdate: "Próxima actualización diaria",
-    notice: "Datos ilustrativos del flujo, mostrando los 100 pedidos más recientes.",
+    notice: "Datos ilustrativos del flujo, mostrando los {count} pedidos más recientes.",
     loading: "Cargando registros…",
     error: "Los registros no están disponibles temporalmente.",
     empty: "No hay registros publicados para este período.",
@@ -258,7 +268,7 @@ const content = {
       "Fecha",
       "Referencia",
       "Destino",
-      "Producto / especificación",
+      "Configuración de productos / especificación",
       "Servicio",
       "Escala del pedido",
       "Importe (USD)",
@@ -292,6 +302,10 @@ const content = {
     volumeDiscount: "descuento por volumen",
     perBox: "caja",
     productLines: "líneas de producto",
+    assembly: "combinación de productos",
+    firstOrder: "Primer pedido",
+    repeatOrder: "Pedido recurrente",
+    repeatOf: "Recompra de",
     fees: "empaque, pruebas y logística",
   },
   fr: {
@@ -304,7 +318,7 @@ const content = {
     refresh: "Actualiser",
     updated: "Date du registre",
     nextUpdate: "Prochaine mise à jour quotidienne",
-    notice: "Données illustratives du flux, présentant les 100 commandes les plus récentes.",
+    notice: "Données illustratives du flux, présentant les {count} commandes les plus récentes.",
     loading: "Chargement des enregistrements…",
     error: "Les enregistrements sont temporairement indisponibles.",
     empty: "Aucun enregistrement publié pour cette période.",
@@ -312,7 +326,7 @@ const content = {
       "Date",
       "Référence",
       "Destination",
-      "Produit / spécification",
+      "Configuration produits / spécification",
       "Service",
       "Taille de commande",
       "Montant (USD)",
@@ -346,6 +360,10 @@ const content = {
     volumeDiscount: "remise sur volume",
     perBox: "boîte",
     productLines: "lignes de produits",
+    assembly: "assemblage de produits",
+    firstOrder: "Première commande",
+    repeatOrder: "Commande récurrente",
+    repeatOf: "Réachat de",
     fees: "emballage, essais et logistique",
   },
   zh: {
@@ -358,7 +376,7 @@ const content = {
     refresh: "刷新记录",
     updated: "台账日期",
     nextUpdate: "下次每日更新",
-    notice: "示例履约流程数据，仅展示近100条新订单",
+    notice: "示例履约流程数据，仅展示近{count}条新订单",
     loading: "正在读取近期记录…",
     error: "近期记录暂时无法加载。",
     empty: "该时间范围内暂无记录。",
@@ -366,7 +384,7 @@ const content = {
       "日期",
       "记录编号",
       "目的地",
-      "产品 / 规格",
+      "产品组合 / 规格",
       "服务类型",
       "订单规模",
       "金额 (USD)",
@@ -400,6 +418,10 @@ const content = {
     volumeDiscount: "数量折扣",
     perBox: "盒",
     productLines: "个产品规格",
+    assembly: "搭配组装",
+    firstOrder: "首次订单",
+    repeatOrder: "客户复购",
+    repeatOf: "对应前单",
     fees: "包装、检测及物流",
   },
 } as const;
@@ -419,6 +441,10 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const t = content[locale];
+  const ledgerNotice = t.notice.replace(
+    "{count}",
+    String(data?.limit ?? 300),
+  );
 
   async function loadRecords() {
     setLoading(true);
@@ -485,7 +511,7 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
             <dd>{t.count}</dd>
           </div>
           <div>
-            <dt>100</dt>
+            <dt>{data?.limit ?? 300}</dt>
             <dd>{t.window}</dd>
           </div>
           <div>
@@ -495,7 +521,7 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
         </dl>
       </div>
 
-      <p className="case-ledger-notice">{t.notice}</p>
+      <p className="case-ledger-notice">{ledgerNotice}</p>
 
       <div className="case-ledger-toolbar">
         <div
@@ -569,11 +595,29 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
                     </td>
                     <td data-label={t.headers[1]}>
                       <code>{record.reference}</code>
+                      <span
+                        className={`case-order-kind ${record.orderKind === "repeat" ? "is-repeat" : ""}`}
+                      >
+                        {record.orderKind === "repeat"
+                          ? t.repeatOrder
+                          : t.firstOrder}
+                      </span>
+                      {record.orderKind === "repeat" &&
+                        record.repeatOfReference && (
+                          <small className="case-repeat-reference">
+                            {t.repeatOf} {record.repeatOfReference}
+                          </small>
+                        )}
                     </td>
                     <td data-label={t.headers[2]}>
                       {t.markets[record.destination]}
                     </td>
                     <td className="case-product" data-label={t.headers[3]}>
+                      <span className="case-assembly-label">
+                        {hasMultipleProducts
+                          ? `${orderItems.length} ${t.assembly}`
+                          : t.assembly}
+                      </span>
                       <div className="case-product-lines">
                         {orderItems.map((item, index) => (
                           <span
@@ -673,7 +717,7 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
 
       {data && (
         <p className="case-ledger-updated">
-          <span>{t.notice}</span>
+          <span>{ledgerNotice}</span>
           <span>
             {t.updated}: {dateFormatter.format(new Date(data.generatedAt))} ·{" "}
             {t.nextUpdate}:{" "}

@@ -8,15 +8,20 @@ import {
 import {
   createBackfillRows,
   createDailyRows,
+  createHistoricalRowsBefore,
   currentFulfillmentStatus,
-  DISPLAY_LIMIT,
+  DEFAULT_GENERATOR_SETTINGS,
   LEDGER_VERSION,
+  MAX_GENERATED_RETENTION,
   mergeFulfillmentRecords,
+  normalizeGeneratorSettings,
   UPDATE_INTERVAL_DAYS,
   type FulfillmentMarket,
   type FulfillmentService,
   type GenerationContext,
+  type GeneratedOrderItem,
   type GeneratedFulfillmentRow,
+  type GeneratorSettings,
 } from "./generator";
 import { findCatalogVariantByDescription } from "../../../lib/product-catalog.ts";
 import {
@@ -24,7 +29,6 @@ import {
   volumeDiscountBps,
 } from "../../../lib/order-pricing.ts";
 
-const RESET_MARKER_KEY = `${LEDGER_VERSION}:history-cleared`;
 const LAST_GENERATED_KEY = `${LEDGER_VERSION}:last-generated-date`;
 
 function isoDate(date: Date) {
@@ -66,27 +70,35 @@ async function setMeta(key: string, value: string) {
     .run();
 }
 
-/**
- * A generator-version change may replace old illustrative rows once. Manual
- * orders live in their own table and are never touched by this reset.
- */
-async function clearPreviousHistoryOnce() {
+async function generatorSettings(): Promise<GeneratorSettings> {
   const d1 = await getD1();
-  const marker = await getMeta(RESET_MARKER_KEY);
-  if (marker === "done") return;
-
-  await d1.batch([
-    d1.prepare("DELETE FROM fulfillment_cases WHERE is_sample = 1"),
-    d1.prepare(
-      "DELETE FROM fulfillment_ledger_meta WHERE key LIKE 'daily-%'",
-    ),
-    d1
-      .prepare(
-        `INSERT INTO fulfillment_ledger_meta (key, value, updated_at)
-         VALUES (?, 'done', CURRENT_TIMESTAMP)`,
-      )
-      .bind(RESET_MARKER_KEY),
-  ]);
+  const row = await d1
+    .prepare(
+      `SELECT display_limit, daily_minimum, daily_maximum,
+              large_order_rate_bps, repeat_order_rate_bps,
+              generation_enabled
+       FROM fulfillment_generator_settings WHERE id = 1`,
+    )
+    .first<{
+      display_limit: number;
+      daily_minimum: number;
+      daily_maximum: number;
+      large_order_rate_bps: number;
+      repeat_order_rate_bps: number;
+      generation_enabled: number;
+    }>();
+  return normalizeGeneratorSettings(
+    row
+      ? {
+          displayLimit: row.display_limit,
+          dailyMinimum: row.daily_minimum,
+          dailyMaximum: row.daily_maximum,
+          largeOrderRateBps: row.large_order_rate_bps,
+          repeatOrderRateBps: row.repeat_order_rate_bps,
+          generationEnabled: Boolean(row.generation_enabled),
+        }
+      : DEFAULT_GENERATOR_SETTINGS,
+  );
 }
 
 async function insertRows(rows: GeneratedFulfillmentRow[]) {
@@ -102,30 +114,73 @@ async function insertRows(rows: GeneratedFulfillmentRow[]) {
 
 async function generationContext(): Promise<GenerationContext> {
   const db = await getDb();
-  const recentBulk = await db
+  const recentRows = await db
     .select({
+      reference: fulfillmentCases.reference,
       occurredAt: fulfillmentCases.occurredAt,
+      destination: fulfillmentCases.destination,
+      service: fulfillmentCases.service,
       orderProfile: fulfillmentCases.orderProfile,
+      productName: fulfillmentCases.productName,
+      specification: fulfillmentCases.specification,
+      quantityUnits: fulfillmentCases.quantityUnits,
+      unitPriceUsdCents: fulfillmentCases.unitPriceUsdCents,
+      itemsJson: fulfillmentCases.itemsJson,
+      customerKey: fulfillmentCases.customerKey,
     })
     .from(fulfillmentCases)
-    .where(
-      and(
-        eq(fulfillmentCases.isSample, true),
-        eq(fulfillmentCases.service, "bulk"),
-      ),
-    )
+    .where(eq(fulfillmentCases.isSample, true))
     .orderBy(desc(fulfillmentCases.occurredAt))
-    .limit(40);
+    .limit(MAX_GENERATED_RETENTION);
+
+  const parseItems = (row: (typeof recentRows)[number]) => {
+    try {
+      const parsed = JSON.parse(row.itemsJson) as GeneratedOrderItem[];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {
+      // Legacy rows intentionally fall back to their original single product.
+    }
+    const catalogItem = findCatalogVariantByDescription(
+      row.productName,
+      row.specification,
+    );
+    return [
+      {
+        sku: catalogItem?.sku ?? "LEGACY",
+        productName: row.productName,
+        specification: row.specification,
+        quantityUnits: row.quantityUnits,
+        retailUnitPriceUsdCents:
+          catalogItem?.retailUsdCents ?? row.unitPriceUsdCents,
+        discountedUnitPriceUsdCents: row.unitPriceUsdCents,
+        lineAmountUsdCents: row.unitPriceUsdCents * row.quantityUnits,
+      },
+    ];
+  };
+  const recentBulk = recentRows.filter((row) => row.service === "bulk");
 
   return {
     lastBulkAt: recentBulk[0]?.occurredAt ?? null,
     lastMegaBulkAt:
       recentBulk.find((row) => row.orderProfile === "3,000+ kits")
         ?.occurredAt ?? null,
+    repeatCandidates: recentRows
+      .map((row) => ({
+        reference: row.reference,
+        occurredAt: row.occurredAt,
+        destination: row.destination as FulfillmentMarket,
+        service: row.service as FulfillmentService,
+        items: parseItems(row),
+        quantityUnits: row.quantityUnits,
+        customerKey:
+          row.customerKey ||
+          `ACC-${row.reference.replaceAll("-", "").slice(-10)}`,
+      }))
+      .reverse(),
   };
 }
 
-async function advanceDailyLedger(now: Date) {
+async function advanceDailyLedger(now: Date, settings: GeneratorSettings) {
   const today = startOfUtcDay(now);
   const db = await getDb();
   const countResult = await db
@@ -135,8 +190,12 @@ async function advanceDailyLedger(now: Date) {
     .limit(1);
   let lastGenerated = await getMeta(LAST_GENERATED_KEY);
 
+  if (!settings.generationEnabled) {
+    return lastGenerated ?? isoDate(today);
+  }
+
   if (countResult.length === 0 || !lastGenerated) {
-    await insertRows(createBackfillRows(DISPLAY_LIMIT, today));
+    await insertRows(createBackfillRows(settings.displayLimit, today, settings));
     lastGenerated = isoDate(today);
     await setMeta(LAST_GENERATED_KEY, lastGenerated);
     return lastGenerated;
@@ -149,7 +208,7 @@ async function advanceDailyLedger(now: Date) {
   );
 
   while (cursor.getTime() <= today.getTime()) {
-    const result = createDailyRows(cursor, context);
+    const result = createDailyRows(cursor, context, settings);
     await insertRows(result.rows);
     context = result.context;
     lastGenerated = isoDate(cursor);
@@ -160,9 +219,40 @@ async function advanceDailyLedger(now: Date) {
   return lastGenerated;
 }
 
+async function ensureIllustrativeCapacity(
+  now: Date,
+  settings: GeneratorSettings,
+) {
+  if (!settings.generationEnabled) return;
+  const d1 = await getD1();
+  const summary = await d1
+    .prepare(
+      `SELECT COUNT(*) AS row_count, MIN(occurred_at) AS oldest_date
+       FROM fulfillment_cases WHERE is_sample = 1`,
+    )
+    .first<{ row_count: number; oldest_date: string | null }>();
+  const existingCount = Number(summary?.row_count ?? 0);
+  const missing = settings.displayLimit - existingCount;
+  if (missing <= 0) return;
+
+  if (!summary?.oldest_date) {
+    await insertRows(createBackfillRows(missing, now, settings));
+    return;
+  }
+
+  await insertRows(
+    createHistoricalRowsBefore(
+      missing,
+      new Date(`${summary.oldest_date}T00:00:00.000Z`),
+      settings,
+    ),
+  );
+}
+
 /**
- * The public ledger only needs its latest 100 illustrative rows. Real orders
- * are held in a different table and are never touched by this cleanup.
+ * The database keeps a bounded 500-row simulated history. Changing the public
+ * display between 100 and 500 never deletes the currently visible 300 rows;
+ * only normal daily rollover eventually expires the oldest sample rows.
  */
 async function pruneIllustrativeRows() {
   const d1 = await getD1();
@@ -178,17 +268,18 @@ async function pruneIllustrativeRows() {
            LIMIT ?
          )`,
     )
-    .bind(DISPLAY_LIMIT)
+    .bind(MAX_GENERATED_RETENTION)
     .run();
 }
 
 export async function GET() {
   try {
     await ensureFulfillmentSchema();
-    await clearPreviousHistoryOnce();
+    const settings = await generatorSettings();
 
     const now = new Date();
-    const generatedAt = await advanceDailyLedger(now);
+    const generatedAt = await advanceDailyLedger(now, settings);
+    await ensureIllustrativeCapacity(now, settings);
     await pruneIllustrativeRows();
 
     const db = await getDb();
@@ -205,7 +296,7 @@ export async function GET() {
         desc(fulfillmentCases.occurredAt),
         desc(fulfillmentCases.id),
       )
-      .limit(DISPLAY_LIMIT);
+      .limit(settings.displayLimit);
 
     const manualRows = await db
       .select()
@@ -216,7 +307,7 @@ export async function GET() {
         desc(manualFulfillmentOrders.createdAt),
         desc(manualFulfillmentOrders.id),
       )
-      .limit(DISPLAY_LIMIT);
+      .limit(settings.displayLimit);
 
     const manualItemRows =
       manualRows.length === 0
@@ -246,15 +337,26 @@ export async function GET() {
     }
 
     const sampleRecords = sampleRows.map((row) => {
-      const { quantityUnits, ...publicRow } = row;
+      const { quantityUnits, customerKey, itemsJson, ...publicRow } = row;
+      void customerKey;
       const catalogItem = findCatalogVariantByDescription(
         row.productName,
         row.specification,
       );
+      let storedItems: GeneratedOrderItem[] = [];
+      try {
+        const parsed = JSON.parse(itemsJson) as GeneratedOrderItem[];
+        if (Array.isArray(parsed)) storedItems = parsed;
+      } catch {
+        storedItems = [];
+      }
+      const firstStoredItem = storedItems[0];
       const discountBps =
         row.service === "custom" ? 0 : volumeDiscountBps(quantityUnits);
       const cataloguePricing =
-        row.service === "catalogue" && catalogItem
+        storedItems.length === 0 &&
+        row.service === "catalogue" &&
+        catalogItem
           ? calculateOrderPricing({
               retailUnitPriceUsdCents: catalogItem.retailUsdCents,
               quantityUnits,
@@ -265,16 +367,25 @@ export async function GET() {
         ...publicRow,
         id: `sample-${row.id}`,
         source: "sample" as const,
-        items: [
-          {
-            productName: row.productName,
-            specification: row.specification,
-          },
-        ],
+        items:
+          storedItems.length > 0
+            ? storedItems.map((item) => ({
+                productName: item.productName,
+                specification: item.specification,
+              }))
+            : [
+                {
+                  productName: row.productName,
+                  specification: row.specification,
+                },
+              ],
         retailUnitPriceUsdCents:
-          catalogItem?.retailUsdCents ?? row.unitPriceUsdCents,
+          firstStoredItem?.retailUnitPriceUsdCents ??
+          catalogItem?.retailUsdCents ??
+          row.unitPriceUsdCents,
         discountBps,
         unitPriceUsdCents:
+          firstStoredItem?.discountedUnitPriceUsdCents ??
           cataloguePricing?.discountedUnitPriceUsdCents ??
           row.unitPriceUsdCents,
         packagingFeeUsdCents:
@@ -343,6 +454,8 @@ export async function GET() {
         isPublished: row.isPublished,
         createdAt: row.createdAt,
         source: "manual" as const,
+        orderKind: "new" as const,
+        repeatOfReference: "",
         items: items.map((item) => ({
           productName: item.productName,
           specification: item.specification,
@@ -356,7 +469,7 @@ export async function GET() {
     const records = mergeFulfillmentRecords(
       manualRecords,
       sampleRecords,
-      DISPLAY_LIMIT,
+      settings.displayLimit,
     );
     const windowStart = records.at(-1)?.occurredAt ?? isoDate(now);
     const nextUpdateAt = addUtcDays(startOfUtcDay(now), 1);
@@ -365,7 +478,7 @@ export async function GET() {
       {
         records,
         count: records.length,
-        limit: DISPLAY_LIMIT,
+        limit: settings.displayLimit,
         windowStart,
         generatedAt: `${generatedAt}T00:00:00.000Z`,
         nextUpdateAt: nextUpdateAt.toISOString(),

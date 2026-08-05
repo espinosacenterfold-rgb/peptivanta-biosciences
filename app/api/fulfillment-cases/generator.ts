@@ -1,11 +1,12 @@
 import { PRODUCT_CATALOG } from "../../../lib/product-catalog.ts";
 import {
-  calculateOrderPricing,
+  calculateMultiItemOrderPricing,
   orderProfileForQuantity,
 } from "../../../lib/order-pricing.ts";
 
 export const LEDGER_VERSION = "daily-v4-10-30-orders";
-export const DISPLAY_LIMIT = 100;
+export const DISPLAY_LIMIT = 300;
+export const MAX_GENERATED_RETENTION = 500;
 export const UPDATE_INTERVAL_DAYS = 1;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -40,14 +41,95 @@ type QuantityProfile = Weighted<{
 }>;
 
 type Product = Weighted<{
+  sku: string;
   name: string;
   specification: string;
   unitPriceUsdCents: number;
 }>;
 
+export type GeneratorSettings = {
+  displayLimit: number;
+  dailyMinimum: number;
+  dailyMaximum: number;
+  largeOrderRateBps: number;
+  repeatOrderRateBps: number;
+  generationEnabled: boolean;
+};
+
+export const DEFAULT_GENERATOR_SETTINGS: GeneratorSettings = {
+  displayLimit: DISPLAY_LIMIT,
+  dailyMinimum: 10,
+  dailyMaximum: 30,
+  // Private-label and bulk work together represent a visible but restrained
+  // B2B expansion layer. Bulk is still independently spaced below.
+  largeOrderRateBps: 1500,
+  repeatOrderRateBps: 3500,
+  generationEnabled: true,
+};
+
+export function normalizeGeneratorSettings(
+  input: Partial<GeneratorSettings> = {},
+): GeneratorSettings {
+  const displayLimit = Math.round(
+    Number(input.displayLimit ?? DEFAULT_GENERATOR_SETTINGS.displayLimit),
+  );
+  const dailyMinimum = Math.round(
+    Number(input.dailyMinimum ?? DEFAULT_GENERATOR_SETTINGS.dailyMinimum),
+  );
+  const dailyMaximum = Math.round(
+    Number(input.dailyMaximum ?? DEFAULT_GENERATOR_SETTINGS.dailyMaximum),
+  );
+  const largeOrderRateBps = Math.round(
+    Number(
+      input.largeOrderRateBps ??
+        DEFAULT_GENERATOR_SETTINGS.largeOrderRateBps,
+    ),
+  );
+  const repeatOrderRateBps = Math.round(
+    Number(
+      input.repeatOrderRateBps ??
+        DEFAULT_GENERATOR_SETTINGS.repeatOrderRateBps,
+    ),
+  );
+  const minimum = Math.max(1, Math.min(50, dailyMinimum || 1));
+  return {
+    displayLimit: Math.max(100, Math.min(500, displayLimit || DISPLAY_LIMIT)),
+    dailyMinimum: minimum,
+    dailyMaximum: Math.max(
+      minimum,
+      Math.min(60, dailyMaximum || minimum),
+    ),
+    largeOrderRateBps: Math.max(500, Math.min(2500, largeOrderRateBps)),
+    repeatOrderRateBps: Math.max(0, Math.min(6000, repeatOrderRateBps)),
+    generationEnabled:
+      input.generationEnabled ?? DEFAULT_GENERATOR_SETTINGS.generationEnabled,
+  };
+}
+
+export type GeneratedOrderItem = {
+  sku: string;
+  productName: string;
+  specification: string;
+  quantityUnits: number;
+  retailUnitPriceUsdCents: number;
+  discountedUnitPriceUsdCents: number;
+  lineAmountUsdCents: number;
+};
+
+export type RepeatCandidate = {
+  reference: string;
+  occurredAt: string;
+  destination: FulfillmentMarket;
+  service: FulfillmentService;
+  items: GeneratedOrderItem[];
+  quantityUnits: number;
+  customerKey: string;
+};
+
 export type GenerationContext = {
   lastBulkAt: string | null;
   lastMegaBulkAt: string | null;
+  repeatCandidates: RepeatCandidate[];
 };
 
 export type GeneratedFulfillmentRow = {
@@ -63,6 +145,10 @@ export type GeneratedFulfillmentRow = {
   packagingFeeUsdCents: number;
   testingFeeUsdCents: number;
   logisticsFeeUsdCents: number;
+  itemsJson: string;
+  orderKind: "new" | "repeat";
+  repeatOfReference: string;
+  customerKey: string;
   amountUsdCents: number;
   status: FulfillmentStatus;
   cycleKey: string;
@@ -128,37 +214,33 @@ const MARKET_WEIGHTS: readonly Weighted<{ value: FulfillmentMarket }>[] = [
   { value: "Mexico", weight: 10 },
 ];
 
-const SERVICE_WEIGHTS: Record<
-  FulfillmentMarket,
-  readonly Weighted<{ value: FulfillmentService }>[]
-> = {
-  "United States": [
-    { value: "catalogue", weight: 87 },
-    { value: "private_label", weight: 6 },
-    { value: "custom", weight: 5 },
-    { value: "bulk", weight: 2 },
-  ],
-  Canada: [
-    { value: "catalogue", weight: 89 },
-    { value: "private_label", weight: 5 },
-    { value: "custom", weight: 4 },
-    { value: "bulk", weight: 2 },
-  ],
-  Brazil: [
-    { value: "catalogue", weight: 83 },
-    { value: "private_label", weight: 7 },
-    { value: "custom", weight: 7 },
-    { value: "bulk", weight: 3 },
-  ],
-  Mexico: [
-    { value: "catalogue", weight: 86 },
-    { value: "private_label", weight: 6 },
-    { value: "custom", weight: 6 },
-    { value: "bulk", weight: 2 },
-  ],
-};
+function serviceWeights(
+  market: FulfillmentMarket,
+  largeOrderRateBps: number,
+): readonly Weighted<{ value: FulfillmentService }>[] {
+  const marketAdjustment =
+    market === "Brazil" ? 150 : market === "Canada" ? -100 : 0;
+  const combinedLarge = Math.max(
+    500,
+    Math.min(2500, largeOrderRateBps + marketAdjustment),
+  );
+  const custom = market === "Brazil" ? 650 : market === "Mexico" ? 550 : 500;
+  // Most growth is private-label work; true bulk lots remain the rarer quarter
+  // and are also guarded by a 20-day spacing rule.
+  const bulk = Math.round(combinedLarge * 0.24);
+  const privateLabel = combinedLarge - bulk;
+  const catalogue = 10_000 - combinedLarge - custom;
+
+  return [
+    { value: "catalogue", weight: catalogue },
+    { value: "private_label", weight: privateLabel },
+    { value: "custom", weight: custom },
+    { value: "bulk", weight: bulk },
+  ];
+}
 
 const CATALOGUE_PRODUCTS: readonly Product[] = PRODUCT_CATALOG.map((item) => ({
+  sku: item.sku,
   name: item.productName,
   specification: item.specification,
   unitPriceUsdCents: item.retailUsdCents,
@@ -188,18 +270,21 @@ const CATALOGUE_PRODUCTS: readonly Product[] = PRODUCT_CATALOG.map((item) => ({
 
 const CUSTOM_PRODUCTS: readonly Product[] = [
   {
+    sku: "CUSTOM-SEQUENCE",
     name: "Custom peptide sequence",
     specification: "Specification-led pilot lot",
     unitPriceUsdCents: 21450,
     weight: 42,
   },
   {
+    sku: "CUSTOM-VIAL",
     name: "Custom vial configuration",
     specification: "Lyophilized · customer-defined strength",
     unitPriceUsdCents: 18675,
     weight: 34,
   },
   {
+    sku: "CUSTOM-MULTI",
     name: "Multi-peptide configuration",
     specification: "Customer-defined composition",
     unitPriceUsdCents: 23780,
@@ -277,37 +362,43 @@ const QUIET_DATES = new Set([
   "12-25",
 ]);
 
-function dailyOrderCount(date: Date, random: () => number) {
+function dailyOrderCount(
+  date: Date,
+  random: () => number,
+  settings: GeneratorSettings,
+) {
   const day = date.getUTCDay();
   const monthDay = isoDate(date).slice(5);
+  const minimum = Math.max(1, Math.min(50, settings.dailyMinimum));
+  const maximum = Math.max(minimum, Math.min(60, settings.dailyMaximum));
+  const span = maximum - minimum;
+  const scaledRange = (low: number, high: number) => [
+    Math.min(maximum, minimum + Math.round(span * low)),
+    Math.min(maximum, minimum + Math.round(span * high)),
+  ] as const;
 
   if (day === 0 || day === 6) {
-    return randomInteger(10, 14, random);
+    const [low, high] = scaledRange(0, 0.2);
+    return randomInteger(low, high, random);
   }
 
   if (QUIET_DATES.has(monthDay)) {
-    return randomInteger(10, 13, random);
+    const [low, high] = scaledRange(0, 0.15);
+    return randomInteger(low, high, random);
   }
 
   if (day === 1) {
-    return randomInteger(15, 23, random);
+    const [low, high] = scaledRange(0.25, 0.65);
+    return randomInteger(low, high, random);
   }
 
   if (day >= 2 && day <= 4) {
-    return randomInteger(20, 30, random);
+    const [low, high] = scaledRange(0.5, 1);
+    return randomInteger(low, high, random);
   }
 
-  return randomInteger(14, 22, random);
-}
-
-function serviceProduct(
-  service: FulfillmentService,
-  random: () => number,
-) {
-  if (service === "custom") {
-    return pickWeighted(CUSTOM_PRODUCTS, random);
-  }
-  return pickWeighted(CATALOGUE_PRODUCTS, random);
+  const [low, high] = scaledRange(0.2, 0.6);
+  return randomInteger(low, high, random);
 }
 
 function serviceSpecification(product: Product) {
@@ -367,16 +458,142 @@ function orderFees(
   };
 }
 
+function productLineCount(
+  service: FulfillmentService,
+  quantityUnits: number,
+  random: () => number,
+) {
+  if (service === "custom" || quantityUnits < 2) return 1;
+  const draw = random();
+  if (service === "catalogue") {
+    return Math.min(quantityUnits, draw < 0.5 ? 1 : draw < 0.87 ? 2 : 3);
+  }
+  return Math.min(quantityUnits, draw < 0.34 ? 1 : draw < 0.76 ? 2 : 3);
+}
+
+function splitQuantity(
+  total: number,
+  lineCount: number,
+  random: () => number,
+) {
+  if (lineCount === 1) return [total];
+  const weights = Array.from({ length: lineCount }, () => 0.6 + random());
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  const quantities = weights.map((weight) =>
+    Math.max(1, Math.floor((total * weight) / weightTotal)),
+  );
+  let assigned = quantities.reduce((sum, quantity) => sum + quantity, 0);
+  while (assigned < total) {
+    quantities[assigned % lineCount] += 1;
+    assigned += 1;
+  }
+  while (assigned > total) {
+    const index = quantities.findIndex((quantity) => quantity > 1);
+    if (index < 0) break;
+    quantities[index] -= 1;
+    assigned -= 1;
+  }
+  return quantities;
+}
+
+function freshProductLines(
+  service: FulfillmentService,
+  quantityUnits: number,
+  random: () => number,
+) {
+  const lineCount = productLineCount(service, quantityUnits, random);
+  const selected: Product[] = [];
+  const productPool = service === "custom" ? CUSTOM_PRODUCTS : CATALOGUE_PRODUCTS;
+  while (selected.length < lineCount) {
+    const product = pickWeighted(productPool, random);
+    if (!selected.some((item) => item.sku === product.sku)) {
+      selected.push(product);
+    }
+  }
+  const quantities = splitQuantity(quantityUnits, lineCount, random);
+  return selected.map((product, index) => ({
+    sku: product.sku,
+    productName: product.name,
+    specification: serviceSpecification(product),
+    retailUnitPriceUsdCents: product.unitPriceUsdCents,
+    quantityUnits: quantities[index],
+  }));
+}
+
+function candidateAgeDays(candidate: RepeatCandidate, date: Date) {
+  return Math.floor(
+    (startOfUtcDay(date).getTime() -
+      Date.parse(`${candidate.occurredAt}T00:00:00.000Z`)) /
+      DAY_MS,
+  );
+}
+
+function pickRepeatCandidate(
+  context: GenerationContext,
+  date: Date,
+  random: () => number,
+) {
+  const eligible = context.repeatCandidates.filter((candidate) => {
+    if (candidate.service === "bulk") return false;
+    const age = candidateAgeDays(candidate, date);
+    const minimumAge = candidate.service === "private_label" ? 8 : 5;
+    return age >= minimumAge && age <= 14;
+  });
+  if (eligible.length === 0) return null;
+  // More recent eligible customers are more likely to place a visible repeat.
+  const weighted = eligible.map((candidate) => ({
+    candidate,
+    weight: Math.max(1, 16 - candidateAgeDays(candidate, date)),
+  }));
+  return pickWeighted(weighted, random).candidate;
+}
+
+function repeatProductLines(
+  candidate: RepeatCandidate,
+  random: () => number,
+) {
+  const growthDraw = random();
+  const multiplier = growthDraw < 0.5 ? 1 : growthDraw < 0.84 ? 1.2 : 1.45;
+  const maximum =
+    candidate.service === "catalogue"
+      ? 50
+      : candidate.service === "private_label"
+        ? 1_000
+        : 100;
+  const total = Math.max(
+    candidate.items.length,
+    Math.min(maximum, Math.round(candidate.quantityUnits * multiplier)),
+  );
+  const quantities = splitQuantity(total, candidate.items.length, random);
+  return candidate.items.map((item, index) => ({
+    sku: item.sku,
+    productName: item.productName,
+    specification: item.specification,
+    retailUnitPriceUsdCents: item.retailUnitPriceUsdCents,
+    quantityUnits: quantities[index],
+  }));
+}
+
 function createOrder(
   date: Date,
   index: number,
   context: GenerationContext,
   random: () => number,
+  settings: GeneratorSettings,
   forcedService?: FulfillmentService,
 ) {
-  const destination = pickWeighted(MARKET_WEIGHTS, random).value;
+  const shouldRepeat =
+    !forcedService && random() * 10_000 < settings.repeatOrderRateBps;
+  const repeatCandidate = shouldRepeat
+    ? pickRepeatCandidate(context, date, random)
+    : null;
+  const destination =
+    repeatCandidate?.destination ?? pickWeighted(MARKET_WEIGHTS, random).value;
   let service =
-    forcedService ?? pickWeighted(SERVICE_WEIGHTS[destination], random).value;
+    repeatCandidate?.service ??
+    forcedService ??
+    pickWeighted(serviceWeights(destination, settings.largeOrderRateBps), random)
+      .value;
 
   // Keep high-volume orders spaced apart. A blocked bulk draw becomes the
   // common catalogue workflow rather than being silently dropped.
@@ -394,19 +611,25 @@ function createOrder(
     profile = profiles[0];
   }
 
-  const quantityUnits = randomInteger(profile.minimum, profile.maximum, random);
-  const product = serviceProduct(service, random);
+  const freshQuantity = randomInteger(profile.minimum, profile.maximum, random);
+  const draftItems = repeatCandidate
+    ? repeatProductLines(repeatCandidate, random)
+    : freshProductLines(service, freshQuantity, random);
+  const quantityUnits = draftItems.reduce(
+    (sum, item) => sum + item.quantityUnits,
+    0,
+  );
   const fees = orderFees(service, destination, quantityUnits, random);
-  const pricing = calculateOrderPricing({
-    retailUnitPriceUsdCents: product.unitPriceUsdCents,
-    quantityUnits,
+  const pricing = calculateMultiItemOrderPricing({
+    items: draftItems,
     service,
     serviceFeeUsdCents:
       fees.packagingFeeUsdCents + fees.testingFeeUsdCents,
-    shippingFeeUsdCents: fees.logisticsFeeUsdCents,
   });
-  const unitPriceUsdCents = pricing.discountedUnitPriceUsdCents;
-  const amountUsdCents = pricing.amountUsdCents;
+  const items: GeneratedOrderItem[] = pricing.items;
+  const firstItem = items[0];
+  const unitPriceUsdCents = firstItem.discountedUnitPriceUsdCents;
+  const amountUsdCents = pricing.amountUsdCents + fees.logisticsFeeUsdCents;
   const dateKey = isoDate(date);
   const marketCode: Record<FulfillmentMarket, string> = {
     "United States": "US",
@@ -421,18 +644,26 @@ function createOrder(
     custom: "X",
   };
   const checksum = String(10 + Math.floor(random() * 90));
+  const reference = `PV-${dateKey.replaceAll("-", "")}-${marketCode[destination]}${serviceCode[service]}-${String(index + 1).padStart(2, "0")}${checksum}`;
+  const customerKey =
+    repeatCandidate?.customerKey ||
+    `ACC-${hashSeed(`${reference}-${destination}`).toString(36).toUpperCase()}`;
 
   const row: GeneratedFulfillmentRow = {
-    reference: `PV-${dateKey.replaceAll("-", "")}-${marketCode[destination]}${serviceCode[service]}-${String(index + 1).padStart(2, "0")}${checksum}`,
+    reference,
     occurredAt: dateKey,
     destination,
     service,
     orderProfile: orderProfileForQuantity(quantityUnits),
-    productName: product.name,
-    specification: serviceSpecification(product),
+    productName: firstItem.productName,
+    specification: firstItem.specification,
     quantityUnits,
     unitPriceUsdCents,
     ...fees,
+    itemsJson: JSON.stringify(items),
+    orderKind: repeatCandidate ? "repeat" : "new",
+    repeatOfReference: repeatCandidate?.reference ?? "",
+    customerKey,
     amountUsdCents,
     status: "confirmed",
     cycleKey: `${LEDGER_VERSION}:${dateKey}`,
@@ -440,7 +671,21 @@ function createOrder(
     isPublished: true,
   };
 
-  const nextContext = { ...context };
+  const nextContext: GenerationContext = {
+    ...context,
+    repeatCandidates: [
+      ...context.repeatCandidates,
+      {
+        reference,
+        occurredAt: dateKey,
+        destination,
+        service,
+        items,
+        quantityUnits,
+        customerKey,
+      },
+    ].slice(-600),
+  };
   if (service === "bulk") {
     nextContext.lastBulkAt = dateKey;
     if (profile.label === "3,000+ kits") {
@@ -456,18 +701,26 @@ export function createDailyRows(
   context: GenerationContext = {
     lastBulkAt: null,
     lastMegaBulkAt: null,
+    repeatCandidates: [],
   },
+  settings: GeneratorSettings = DEFAULT_GENERATOR_SETTINGS,
 ) {
   const orderDate = startOfUtcDay(date);
   const random = createSeededRandom(
     hashSeed(`peptivanta-${LEDGER_VERSION}-${isoDate(orderDate)}`),
   );
-  const count = dailyOrderCount(orderDate, random);
+  const count = dailyOrderCount(orderDate, random, settings);
   const rows: GeneratedFulfillmentRow[] = [];
   let nextContext = { ...context };
 
   for (let index = 0; index < count; index += 1) {
-    const result = createOrder(orderDate, index, nextContext, random);
+    const result = createOrder(
+      orderDate,
+      index,
+      nextContext,
+      random,
+      settings,
+    );
     rows.push(result.row);
     nextContext = result.context;
   }
@@ -478,15 +731,16 @@ export function createDailyRows(
 export function createBackfillRows(
   count: number,
   asOf: Date,
+  settings: GeneratorSettings = DEFAULT_GENERATOR_SETTINGS,
 ) {
   const end = startOfUtcDay(asOf);
-  // Ten to thirty new rows per day means the latest 100 normally fit inside
-  // one to two weeks; no need to synthesize an unused three-month backlog.
-  const start = addUtcDays(end, -14);
+  const estimatedDays = Math.ceil(count / Math.max(1, settings.dailyMinimum));
+  const start = addUtcDays(end, -(estimatedDays + 10));
   const rows: GeneratedFulfillmentRow[] = [];
   let context: GenerationContext = {
     lastBulkAt: null,
     lastMegaBulkAt: null,
+    repeatCandidates: [],
   };
 
   for (
@@ -494,7 +748,7 @@ export function createBackfillRows(
     date.getTime() <= end.getTime();
     date = addUtcDays(date, 1)
   ) {
-    const result = createDailyRows(date, context);
+    const result = createDailyRows(date, context, settings);
     rows.push(...result.rows);
     context = result.context;
   }
@@ -514,6 +768,7 @@ export function createBackfillRows(
         20 + supplementIndex,
         context,
         random,
+        settings,
         "catalogue",
       );
       rows.push(result.row);
@@ -522,13 +777,41 @@ export function createBackfillRows(
     supplementIndex += 1;
   }
 
-  return rows
+  const selected = rows
     .sort(
       (left, right) =>
         left.occurredAt.localeCompare(right.occurredAt) ||
         left.reference.localeCompare(right.reference),
     )
     .slice(-count);
+
+  // If the selected window trimmed away the parent of an early repeat, expose
+  // that row as a normal first order instead of showing a broken reference.
+  const selectedReferences = new Set(selected.map((row) => row.reference));
+  return selected.map((row) =>
+    row.orderKind === "repeat" &&
+    !selectedReferences.has(row.repeatOfReference)
+      ? { ...row, orderKind: "new" as const, repeatOfReference: "" }
+      : row,
+  );
+}
+
+/**
+ * Adds history strictly before the oldest stored row. It is used when the
+ * display expands from 100 to 300, so no existing reference or amount is ever
+ * regenerated. The returned rows remain chronological and self-contained.
+ */
+export function createHistoricalRowsBefore(
+  count: number,
+  beforeDate: Date,
+  settings: GeneratorSettings = DEFAULT_GENERATOR_SETTINGS,
+) {
+  if (count <= 0) return [];
+  return createBackfillRows(
+    count,
+    addUtcDays(startOfUtcDay(beforeDate), -1),
+    settings,
+  );
 }
 
 const COUNTRY_HOLIDAYS: Record<FulfillmentMarket, ReadonlySet<string>> = {

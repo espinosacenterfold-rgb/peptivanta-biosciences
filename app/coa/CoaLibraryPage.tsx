@@ -254,6 +254,8 @@ export default function CoaLibraryPage() {
 
   useEffect(() => {
     const storedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    // Hydrate the saved preference only after the browser is available.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isSiteLocale(storedLocale)) setLocale(storedLocale);
   }, []);
 

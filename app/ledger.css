@@ -71,6 +71,46 @@
   gap: 8px;
 }
 
+.case-assembly-label,
+.case-order-kind {
+  width: fit-content;
+  margin-bottom: 8px;
+  padding: 4px 7px;
+  border: 1px solid rgba(126, 223, 242, 0.2);
+  border-radius: 999px;
+  background: rgba(126, 223, 242, 0.08);
+  color: #aeeaf3;
+  display: block;
+  font-size: 7px;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.case-order-kind {
+  margin: 7px 0 0;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.055);
+  color: #9db0ae;
+}
+
+.case-order-kind.is-repeat {
+  border-color: rgba(216, 255, 92, 0.26);
+  background: rgba(216, 255, 92, 0.09);
+  color: #d8ff5c;
+}
+
+.case-repeat-reference {
+  max-width: 130px;
+  margin-top: 6px;
+  color: #8fa7a4;
+  display: block;
+  font-size: 8px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .case-product-line {
   display: block;
 }

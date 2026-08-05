@@ -1,5 +1,6 @@
 .admin-login-page,
-.admin-orders-page {
+.admin-orders-page,
+.admin-generator-page {
   min-height: 100vh;
   background:
     radial-gradient(circle at 92% 0%, rgba(50, 124, 255, 0.13), transparent 28%),
@@ -103,6 +104,79 @@
   color: var(--ink);
   font: inherit;
   font-size: 13px;
+}
+
+.admin-generator-controls form {
+  align-items: stretch;
+}
+
+.admin-generator-controls label:not(.admin-checkbox) {
+  min-height: 132px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.72);
+  align-content: start;
+}
+
+.admin-generator-controls label small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.admin-generator-controls input[type="range"] {
+  min-height: 24px;
+  padding: 0;
+  accent-color: var(--blue);
+}
+
+.admin-generator-controls label > strong {
+  color: var(--blue);
+  font-family: var(--font-display);
+  font-size: 24px;
+}
+
+.admin-generator-stats > dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-generator-stats > dl div {
+  min-height: 120px;
+  padding: 20px;
+  border-radius: 15px;
+  background: #f2f6f5;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.admin-generator-stats dt,
+.admin-generator-stats > p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.admin-generator-stats dd {
+  margin: 12px 0 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 740;
+}
+
+.admin-generator-stats dd small {
+  margin-left: 8px;
+  color: var(--blue);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.admin-generator-stats > p {
+  margin: 18px 0 0;
 }
 
 .admin-login-card input:focus,
@@ -607,6 +681,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .admin-generator-stats > dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .admin-product-line {
     grid-template-columns: 36px repeat(2, minmax(0, 1fr));
   }
@@ -662,6 +740,10 @@
   }
 
   .admin-order-cards dl {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-generator-stats > dl {
     grid-template-columns: 1fr;
   }
 

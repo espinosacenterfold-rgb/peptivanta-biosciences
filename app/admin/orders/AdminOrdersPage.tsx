@@ -405,6 +405,7 @@ export default function AdminOrdersPage() {
           </span>
         </div>
         <nav>
+          <Link href="/admin/generator">模拟订单控制台</Link>
           <Link href="/fulfillment" target="_blank">查看公开页面</Link>
           <button type="button" onClick={signOut}>退出后台</button>
         </nav>

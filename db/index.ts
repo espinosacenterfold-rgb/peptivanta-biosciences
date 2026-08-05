@@ -58,6 +58,22 @@ const addedColumns = [
     name: "logistics_fee_usd_cents",
     sql: "ALTER TABLE fulfillment_cases ADD COLUMN logistics_fee_usd_cents INTEGER DEFAULT 0 NOT NULL",
   },
+  {
+    name: "items_json",
+    sql: "ALTER TABLE fulfillment_cases ADD COLUMN items_json TEXT DEFAULT '[]' NOT NULL",
+  },
+  {
+    name: "order_kind",
+    sql: "ALTER TABLE fulfillment_cases ADD COLUMN order_kind TEXT DEFAULT 'new' NOT NULL",
+  },
+  {
+    name: "repeat_of_reference",
+    sql: "ALTER TABLE fulfillment_cases ADD COLUMN repeat_of_reference TEXT DEFAULT '' NOT NULL",
+  },
+  {
+    name: "customer_key",
+    sql: "ALTER TABLE fulfillment_cases ADD COLUMN customer_key TEXT DEFAULT '' NOT NULL",
+  },
 ] as const;
 
 const manualOrderAddedColumns = [
@@ -109,6 +125,10 @@ export async function ensureFulfillmentSchema() {
         packaging_fee_usd_cents INTEGER DEFAULT 0 NOT NULL,
         testing_fee_usd_cents INTEGER DEFAULT 0 NOT NULL,
         logistics_fee_usd_cents INTEGER DEFAULT 0 NOT NULL,
+        items_json TEXT DEFAULT '[]' NOT NULL,
+        order_kind TEXT DEFAULT 'new' NOT NULL,
+        repeat_of_reference TEXT DEFAULT '' NOT NULL,
+        customer_key TEXT DEFAULT '' NOT NULL,
         amount_usd_cents INTEGER DEFAULT 0 NOT NULL,
         status TEXT NOT NULL,
         cycle_key TEXT DEFAULT 'legacy' NOT NULL,
@@ -121,6 +141,18 @@ export async function ensureFulfillmentSchema() {
       CREATE TABLE IF NOT EXISTS fulfillment_ledger_meta (
         key TEXT PRIMARY KEY NOT NULL,
         value TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS fulfillment_generator_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1 NOT NULL,
+        display_limit INTEGER DEFAULT 300 NOT NULL,
+        daily_minimum INTEGER DEFAULT 10 NOT NULL,
+        daily_maximum INTEGER DEFAULT 30 NOT NULL,
+        large_order_rate_bps INTEGER DEFAULT 1500 NOT NULL,
+        repeat_order_rate_bps INTEGER DEFAULT 3500 NOT NULL,
+        generation_enabled INTEGER DEFAULT 1 NOT NULL,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
       )
     `),
@@ -210,5 +242,12 @@ export async function ensureFulfillmentSchema() {
     d1.prepare(
       "CREATE INDEX IF NOT EXISTS fulfillment_cases_service_occurred_at_idx ON fulfillment_cases (service, occurred_at)",
     ),
+    d1.prepare(`
+      INSERT INTO fulfillment_generator_settings (
+        id, display_limit, daily_minimum, daily_maximum,
+        large_order_rate_bps, repeat_order_rate_bps, generation_enabled
+      ) VALUES (1, 300, 10, 30, 1500, 3500, 1)
+      ON CONFLICT(id) DO NOTHING
+    `),
   ]);
 }

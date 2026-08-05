@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createBackfillRows,
   createDailyRows,
+  createHistoricalRowsBefore,
   currentFulfillmentStatus,
   DISPLAY_LIMIT,
   LEDGER_VERSION,
@@ -20,19 +21,19 @@ import {
 
 const asOf = new Date("2026-07-28T00:00:00.000Z");
 
-test("daily ledger backfill is deterministic and limited to 100 records", () => {
+test("daily ledger backfill is deterministic and limited to 300 records", () => {
   const first = createBackfillRows(DISPLAY_LIMIT, asOf);
   const second = createBackfillRows(DISPLAY_LIMIT, asOf);
 
   assert.equal(LEDGER_VERSION, "daily-v4-10-30-orders");
   assert.equal(UPDATE_INTERVAL_DAYS, 1);
-  assert.equal(first.length, 100);
+  assert.equal(first.length, 300);
   assert.deepEqual(first, second);
   assert.ok(first.every((row) => row.occurredAt >= "2026-04-28"));
 });
 
 test("service, size, and market weights resemble a catalogue-led business", () => {
-  const rows = createBackfillRows(100, asOf);
+  const rows = createBackfillRows(DISPLAY_LIMIT, asOf);
   const serviceCount = Object.fromEntries(
     ["catalogue", "private_label", "bulk", "custom"].map((service) => [
       service,
@@ -53,12 +54,14 @@ test("service, size, and market weights resemble a catalogue-led business", () =
     (row) => row.service === "bulk" && row.orderProfile === "3,000+ kits",
   );
 
-  assert.ok(serviceCount.catalogue >= 80, serviceCount);
-  assert.ok(serviceCount.bulk <= 3, serviceCount);
-  assert.ok(smallOrders.length >= 70);
-  assert.ok(ordersUnder500Usd.length >= 55);
-  assert.ok(ordersUnder1000Usd.length >= 75);
-  assert.ok(ordersOver5000Usd.length <= 12);
+  assert.ok(serviceCount.catalogue >= 225, serviceCount);
+  assert.ok(serviceCount.private_label >= 20, serviceCount);
+  assert.ok(serviceCount.bulk <= 5, serviceCount);
+  assert.ok(serviceCount.private_label + serviceCount.bulk <= 50, serviceCount);
+  assert.ok(smallOrders.length >= 220);
+  assert.ok(ordersUnder500Usd.length >= 175);
+  assert.ok(ordersUnder1000Usd.length >= 220);
+  assert.ok(ordersOver5000Usd.length <= 50);
   assert.ok(megaBulk.length <= 2);
   assert.ok(marketCount["United States"] > marketCount.Canada, marketCount);
   assert.ok(marketCount.Canada > marketCount.Mexico, marketCount);
@@ -67,7 +70,7 @@ test("service, size, and market weights resemble a catalogue-led business", () =
 });
 
 test("bulk orders remain separated while daily activity stays continuous", () => {
-  const rows = createBackfillRows(100, asOf);
+  const rows = createBackfillRows(DISPLAY_LIMIT, asOf);
   const bulkRows = rows
     .filter((row) => row.service === "bulk")
     .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
@@ -82,35 +85,84 @@ test("bulk orders remain separated while daily activity stays continuous", () =>
   assert.ok(new Set(rows.map((row) => row.occurredAt)).size >= 4);
 });
 
+test("product assemblies and repeat orders are linked to visible prior orders", () => {
+  const rows = createBackfillRows(DISPLAY_LIMIT, asOf);
+  const references = new Set(rows.map((row) => row.reference));
+  const repeated = rows.filter((row) => row.orderKind === "repeat");
+  const mixed = rows.filter((row) => JSON.parse(row.itemsJson).length > 1);
+
+  assert.ok(mixed.length >= 75, `only ${mixed.length} assembled orders`);
+  assert.ok(repeated.length >= 35, `only ${repeated.length} repeat orders`);
+  assert.ok(repeated.length <= 90, `too many repeat orders: ${repeated.length}`);
+  for (const row of repeated) {
+    assert.ok(references.has(row.repeatOfReference), row.repeatOfReference);
+    const parent = rows.find(
+      (candidate) => candidate.reference === row.repeatOfReference,
+    );
+    assert.ok(parent);
+    assert.ok(parent.occurredAt < row.occurredAt);
+    assert.equal(parent.destination, row.destination);
+    assert.deepEqual(
+      JSON.parse(parent.itemsJson).map((item) => [
+        item.productName,
+        item.specification,
+      ]),
+      JSON.parse(row.itemsJson).map((item) => [
+        item.productName,
+        item.specification,
+      ]),
+    );
+  }
+});
+
+test("capacity expansion generates only dates before the existing ledger", () => {
+  const history = createHistoricalRowsBefore(
+    200,
+    new Date("2026-07-31T00:00:00.000Z"),
+  );
+  assert.equal(history.length, 200);
+  assert.ok(history.every((row) => row.occurredAt < "2026-07-31"));
+  assert.equal(new Set(history.map((row) => row.reference)).size, 200);
+});
+
 test("amounts use the official quote catalogue and volume discount ladder", () => {
-  const rows = createBackfillRows(100, asOf);
+  const rows = createBackfillRows(DISPLAY_LIMIT, asOf);
   let nonRoundedAmounts = 0;
 
   for (const row of rows) {
     assert.ok(row.productName.length > 0);
     assert.ok(row.specification.length > 0);
     if (row.service !== "custom") {
-      const catalogueItem = PRODUCT_CATALOG.find(
-        (item) =>
-          item.productName === row.productName &&
-          row.specification.startsWith(item.specification),
-      );
-      assert.ok(catalogueItem, `${row.productName} ${row.specification}`);
+      const items = JSON.parse(row.itemsJson);
+      assert.ok(items.length >= 1 && items.length <= 3);
+      for (const line of items) {
+        const catalogueItem = PRODUCT_CATALOG.find(
+          (item) =>
+            item.productName === line.productName &&
+            line.specification.startsWith(item.specification),
+        );
+        assert.ok(catalogueItem, `${line.productName} ${line.specification}`);
+        assert.equal(line.retailUnitPriceUsdCents, catalogueItem.retailUsdCents);
+      }
       if (row.service === "catalogue") {
         assert.equal(row.packagingFeeUsdCents, 0);
         assert.equal(row.testingFeeUsdCents, 0);
         assert.equal(row.logisticsFeeUsdCents, 0);
       }
-      const pricing = calculateOrderPricing({
-        retailUnitPriceUsdCents: catalogueItem.retailUsdCents,
-        quantityUnits: row.quantityUnits,
+      const pricing = calculateMultiItemOrderPricing({
+        items,
         service: row.service,
         serviceFeeUsdCents:
           row.packagingFeeUsdCents + row.testingFeeUsdCents,
-        shippingFeeUsdCents: row.logisticsFeeUsdCents,
       });
-      assert.equal(row.unitPriceUsdCents, pricing.discountedUnitPriceUsdCents);
-      assert.equal(row.amountUsdCents, pricing.amountUsdCents);
+      assert.equal(
+        row.unitPriceUsdCents,
+        pricing.items[0].discountedUnitPriceUsdCents,
+      );
+      assert.equal(
+        row.amountUsdCents,
+        pricing.amountUsdCents + row.logisticsFeeUsdCents,
+      );
     }
     if (row.amountUsdCents % 1000 !== 0) nonRoundedAmounts += 1;
   }
@@ -177,7 +229,7 @@ test("mixed-product real orders use one total-quantity discount and no freight",
 });
 
 test("catalogue totals contain product value only", () => {
-  const rows = createBackfillRows(100, asOf).filter(
+  const rows = createBackfillRows(DISPLAY_LIMIT, asOf).filter(
     (row) => row.service === "catalogue",
   );
 
@@ -185,9 +237,10 @@ test("catalogue totals contain product value only", () => {
     assert.equal(row.packagingFeeUsdCents, 0);
     assert.equal(row.testingFeeUsdCents, 0);
     assert.equal(row.logisticsFeeUsdCents, 0);
+    const items = JSON.parse(row.itemsJson);
     assert.equal(
       row.amountUsdCents,
-      row.unitPriceUsdCents * row.quantityUnits,
+      items.reduce((sum, item) => sum + item.lineAmountUsdCents, 0),
     );
   }
 });
@@ -356,6 +409,15 @@ test("the next daily update appends records without rewriting prior orders", () 
   const nextDay = createDailyRows(new Date("2026-07-29T00:00:00.000Z"), {
     lastBulkAt: lastBulk?.occurredAt ?? null,
     lastMegaBulkAt: lastMegaBulk?.occurredAt ?? null,
+    repeatCandidates: priorRows.map((row) => ({
+      reference: row.reference,
+      occurredAt: row.occurredAt,
+      destination: row.destination,
+      service: row.service,
+      items: JSON.parse(row.itemsJson),
+      quantityUnits: row.quantityUnits,
+      customerKey: row.customerKey,
+    })),
   });
   const combinedRows = [...priorRows, ...nextDay.rows];
 

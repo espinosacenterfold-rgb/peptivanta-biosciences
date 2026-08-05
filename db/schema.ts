@@ -23,6 +23,15 @@ export const fulfillmentCases = sqliteTable(
     logisticsFeeUsdCents: integer("logistics_fee_usd_cents")
       .notNull()
       .default(0),
+    /**
+     * JSON product lines are additive: legacy rows keep their original single
+     * product columns, while newer generated orders can show a real assembly
+     * of two or three catalogue products.
+     */
+    itemsJson: text("items_json").notNull().default("[]"),
+    orderKind: text("order_kind").notNull().default("new"),
+    repeatOfReference: text("repeat_of_reference").notNull().default(""),
+    customerKey: text("customer_key").notNull().default(""),
     amountUsdCents: integer("amount_usd_cents").notNull().default(0),
     status: text("status").notNull(),
     cycleKey: text("cycle_key").notNull().default("legacy"),
@@ -50,6 +59,30 @@ export const fulfillmentLedgerMeta = sqliteTable(
   {
     key: text("key").primaryKey(),
     value: text("value").notNull(),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+);
+
+/**
+ * Isolated controls for the illustrative-order generator. These settings do
+ * not share a table or mutation endpoint with genuine customer orders.
+ */
+export const fulfillmentGeneratorSettings = sqliteTable(
+  "fulfillment_generator_settings",
+  {
+    id: integer("id").primaryKey().default(1),
+    displayLimit: integer("display_limit").notNull().default(300),
+    dailyMinimum: integer("daily_minimum").notNull().default(10),
+    dailyMaximum: integer("daily_maximum").notNull().default(30),
+    largeOrderRateBps: integer("large_order_rate_bps")
+      .notNull()
+      .default(1500),
+    repeatOrderRateBps: integer("repeat_order_rate_bps")
+      .notNull()
+      .default(3500),
+    generationEnabled: integer("generation_enabled", { mode: "boolean" })
+      .notNull()
+      .default(true),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
 );

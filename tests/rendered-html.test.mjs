@@ -80,7 +80,10 @@ test("includes complete multilingual ledger content", async () => {
   assert.match(homepage, /产品分类 · Products Categories/);
   assert.match(ledger, /近期订单流程记录/);
   assert.match(ledger, /示例履约流程数据/);
-  assert.match(ledger, /示例履约流程数据，仅展示近100条新订单/);
+  assert.match(ledger, /示例履约流程数据，仅展示近\{count\}条新订单/);
+  assert.match(ledger, /产品组合 \/ 规格/);
+  assert.match(ledger, /客户复购/);
+  assert.match(ledger, /对应前单/);
   assert.match(ledger, /Mexico/);
   assert.match(ledger, /Order size/);
   assert.match(ledger, /Faixa do pedido/);
@@ -124,7 +127,8 @@ test("configures a durable daily incremental ledger", async () => {
   ]);
 
   assert.equal(JSON.parse(hosting).d1, "DB");
-  assert.match(generator, /DISPLAY_LIMIT = 100/);
+  assert.match(generator, /DISPLAY_LIMIT = 300/);
+  assert.match(generator, /MAX_GENERATED_RETENTION = 500/);
   assert.match(generator, /UPDATE_INTERVAL_DAYS = 1/);
   assert.match(generator, /LEDGER_VERSION = "daily-v4-10-30-orders"/);
   assert.match(generator, /createBackfillRows/);
@@ -136,7 +140,7 @@ test("configures a durable daily incremental ledger", async () => {
   assert.match(generator, /quality_control/);
   assert.match(generator, /packaging/);
   assert.match(generator, /Mexico/);
-  assert.match(route, /clearPreviousHistoryOnce/);
+  assert.doesNotMatch(route, /clearPreviousHistoryOnce/);
   assert.match(route, /LAST_GENERATED_KEY/);
   assert.match(route, /pruneIllustrativeRows/);
   assert.match(route, /ORDER BY occurred_at DESC, id DESC/);
@@ -146,7 +150,7 @@ test("configures a durable daily incremental ledger", async () => {
   assert.match(route, /dataMode: "mixed_workflow"/);
   assert.match(route, /onConflictDoNothing/);
   assert.doesNotMatch(route, /\.update\(fulfillmentCases\)/);
-  assert.match(route, /const \{ quantityUnits, \.\.\.publicRow \} = row/);
+  assert.match(route, /itemsJson/);
   assert.match(route, /retailUnitPriceUsdCents/);
   assert.match(route, /discountBps/);
   assert.match(route, /row\.service === "catalogue" \? 0/);
@@ -160,6 +164,10 @@ test("configures a durable daily incremental ledger", async () => {
   assert.match(schema, /packaging_fee_usd_cents/);
   assert.match(schema, /testing_fee_usd_cents/);
   assert.match(schema, /logistics_fee_usd_cents/);
+  assert.match(schema, /items_json/);
+  assert.match(schema, /order_kind/);
+  assert.match(schema, /repeat_of_reference/);
+  assert.match(schema, /fulfillment_generator_settings/);
   assert.match(schema, /manual_fulfillment_orders/);
   assert.match(schema, /manual_fulfillment_order_items/);
   assert.match(schema, /is_published/);
@@ -168,6 +176,7 @@ test("configures a durable daily incremental ledger", async () => {
   assert.match(database, /CREATE TABLE IF NOT EXISTS fulfillment_ledger_meta/);
   assert.match(database, /CREATE TABLE IF NOT EXISTS manual_fulfillment_orders/);
   assert.match(database, /CREATE TABLE IF NOT EXISTS manual_fulfillment_order_items/);
+  assert.match(database, /CREATE TABLE IF NOT EXISTS fulfillment_generator_settings/);
 });
 
 test("renders the dedicated fulfillment page", async () => {
@@ -220,6 +229,30 @@ test("renders the private real-order administration page", async () => {
   assert.equal((catalogue.match(/\{ sku:/g) ?? []).length, 96);
   assert.match(pricing, /VOLUME_DISCOUNT_TIERS/);
   assert.match(pricing, /discountBps: 4000/);
+});
+
+test("renders an isolated illustrative-order generator console", async () => {
+  const response = await render("/admin/generator");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /模拟订单控制台/);
+  assert.match(html, /真实订单后台完全隔离/);
+
+  const [page, route] = await Promise.all([
+    readFile(
+      new URL("../app/admin/generator/AdminGeneratorPage.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/api/admin/generator/route.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  assert.match(page, /贴牌 \+ 大货目标占比/);
+  assert.match(page, /复购订单目标占比/);
+  assert.match(page, /\/api\/admin\/generator/);
+  assert.match(route, /fulfillment_generator_settings/);
+  assert.doesNotMatch(route, /manual_fulfillment_orders/);
 });
 
 test("renders the dedicated multilingual analytical report library", async () => {
