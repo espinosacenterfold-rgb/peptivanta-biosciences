@@ -103,12 +103,50 @@ async function generatorSettings(): Promise<GeneratorSettings> {
 
 async function insertRows(rows: GeneratedFulfillmentRow[]) {
   if (rows.length === 0) return;
-  const db = await getDb();
-  for (let index = 0; index < rows.length; index += 5) {
-    await db
-      .insert(fulfillmentCases)
-      .values(rows.slice(index, index + 5))
-      .onConflictDoNothing();
+  const d1 = await getD1();
+  const insertSql = `
+    INSERT INTO fulfillment_cases (
+      reference, occurred_at, destination, service, order_profile,
+      product_name, specification, quantity_units, unit_price_usd_cents,
+      packaging_fee_usd_cents, testing_fee_usd_cents,
+      logistics_fee_usd_cents, items_json, order_kind,
+      repeat_of_reference, customer_key, amount_usd_cents, status,
+      cycle_key, is_sample, is_published
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(reference) DO NOTHING
+  `;
+
+  // Each statement stays well below SQLite's parameter limit, while D1.batch
+  // keeps a 200-row capacity expansion to only four database round trips.
+  for (let index = 0; index < rows.length; index += 50) {
+    const statements = rows.slice(index, index + 50).map((row) =>
+      d1
+        .prepare(insertSql)
+        .bind(
+          row.reference,
+          row.occurredAt,
+          row.destination,
+          row.service,
+          row.orderProfile,
+          row.productName,
+          row.specification,
+          row.quantityUnits,
+          row.unitPriceUsdCents,
+          row.packagingFeeUsdCents,
+          row.testingFeeUsdCents,
+          row.logisticsFeeUsdCents,
+          row.itemsJson,
+          row.orderKind,
+          row.repeatOfReference,
+          row.customerKey,
+          row.amountUsdCents,
+          row.status,
+          row.cycleKey,
+          1,
+          1,
+        ),
+    );
+    await d1.batch(statements);
   }
 }
 

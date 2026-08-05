@@ -148,7 +148,8 @@ test("configures a durable daily incremental ledger", async () => {
   assert.match(route, /mergeFulfillmentRecords/);
   assert.match(generator, /right\.occurredAt\.localeCompare\(left\.occurredAt\)/);
   assert.match(route, /dataMode: "mixed_workflow"/);
-  assert.match(route, /onConflictDoNothing/);
+  assert.match(route, /ON CONFLICT\(reference\) DO NOTHING/);
+  assert.match(route, /rows\.slice\(index, index \+ 50\)/);
   assert.doesNotMatch(route, /\.update\(fulfillmentCases\)/);
   assert.match(route, /itemsJson/);
   assert.match(route, /retailUnitPriceUsdCents/);
