@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const fulfillmentCases = sqliteTable(
   "fulfillment_cases",
@@ -167,4 +173,254 @@ export const manualFulfillmentOrderItems = sqliteTable(
   (table) => [
     index("manual_fulfillment_order_items_order_id_idx").on(table.orderId),
   ],
+);
+
+/**
+ * Customer accounts are deliberately small and independent from simulated
+ * buyer keys. Credentials are keyed hashes, never reversible plaintext.
+ */
+export const customers = sqliteTable(
+  "customers",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    publicId: text("public_id").notNull().unique(),
+    username: text("username").notNull(),
+    usernameNormalized: text("username_normalized").notNull(),
+    passwordHash: text("password_hash").notNull(),
+    passwordSalt: text("password_salt").notNull(),
+    recoveryHash: text("recovery_hash").notNull(),
+    recoverySalt: text("recovery_salt").notNull(),
+    displayName: text("display_name").notNull().default(""),
+    companyName: text("company_name").notNull().default(""),
+    countryCode: text("country_code").notNull().default(""),
+    locale: text("locale").notNull().default("en"),
+    status: text("status").notNull().default("active_unlinked"),
+    profileVersion: integer("profile_version").notNull().default(1),
+    privacyConsentAt: text("privacy_consent_at").notNull(),
+    lastLoginAt: text("last_login_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("customers_status_idx").on(table.status),
+    uniqueIndex("customers_username_normalized_idx").on(
+      table.usernameNormalized,
+    ),
+  ],
+);
+
+export const customerSessions = sqliteTable(
+  "customer_sessions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: text("expires_at").notNull(),
+    lastSeenAt: text("last_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("customer_sessions_customer_id_idx").on(table.customerId),
+    index("customer_sessions_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
+export const customerOrderCodes = sqliteTable(
+  "customer_order_codes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => manualFulfillmentOrders.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    codeSalt: text("code_salt").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("customer_order_codes_order_id_idx").on(table.orderId),
+    index("customer_order_codes_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
+export const customerOrderLinks = sqliteTable(
+  "customer_order_links",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    orderId: integer("order_id")
+      .notNull()
+      .references(() => manualFulfillmentOrders.id, { onDelete: "cascade" }),
+    linkedAt: text("linked_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("customer_order_links_order_id_idx").on(table.orderId),
+    index("customer_order_links_customer_id_idx").on(table.customerId),
+  ],
+);
+
+export const customerProfileEvents = sqliteTable(
+  "customer_profile_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    actor: text("actor").notNull(),
+    beforeJson: text("before_json").notNull(),
+    afterJson: text("after_json").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("customer_profile_events_customer_id_idx").on(table.customerId),
+  ],
+);
+
+export const authRateLimits = sqliteTable("auth_rate_limits", {
+  key: text("key").primaryKey(),
+  action: text("action").notNull(),
+  attemptCount: integer("attempt_count").notNull().default(1),
+  expiresAt: text("expires_at").notNull(),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+/**
+ * R2 stores the bytes; this table keeps only searchable metadata and expiry.
+ * Link-only rows are allowed so an administrator can use an external helper,
+ * then attach an authorized local upload to the same source record.
+ */
+export const mediaLibraryAssets = sqliteTable(
+  "media_library_assets",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    publicId: text("public_id").notNull().unique(),
+    status: text("status").notNull().default("pending"),
+    sourcePlatform: text("source_platform").notNull().default("manual"),
+    sourceUrl: text("source_url").notNull().default(""),
+    sourceTitle: text("source_title").notNull().default(""),
+    sourceAuthor: text("source_author").notNull().default(""),
+    rightsBasis: text("rights_basis").notNull().default("owned_or_authorized"),
+    rightsConfirmedAt: text("rights_confirmed_at").notNull(),
+    originalFilename: text("original_filename").notNull().default(""),
+    r2Key: text("r2_key").notNull().default(""),
+    mimeType: text("mime_type").notNull().default(""),
+    sizeBytes: integer("size_bytes").notNull().default(0),
+    width: integer("width").notNull().default(0),
+    height: integer("height").notNull().default(0),
+    tagsJson: text("tags_json").notNull().default("[]"),
+    availableFrom: text("available_from").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    useCount: integer("use_count").notNull().default(0),
+    lastUsedAt: text("last_used_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("media_library_assets_status_available_idx").on(
+      table.status,
+      table.availableFrom,
+    ),
+    index("media_library_assets_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
+export const feedbackEntries = sqliteTable(
+  "feedback_entries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    publicId: text("public_id").notNull().unique(),
+    sourceType: text("source_type").notNull(),
+    manualOrderId: integer("manual_order_id").references(
+      () => manualFulfillmentOrders.id,
+      { onDelete: "set null" },
+    ),
+    sampleCaseId: integer("sample_case_id").references(
+      () => fulfillmentCases.id,
+      { onDelete: "set null" },
+    ),
+    customerId: integer("customer_id").references(() => customers.id, {
+      onDelete: "set null",
+    }),
+    mediaAssetId: integer("media_asset_id").references(
+      () => mediaLibraryAssets.id,
+      { onDelete: "set null" },
+    ),
+    countryCode: text("country_code").notNull().default(""),
+    service: text("service").notNull().default(""),
+    orderKind: text("order_kind").notNull().default("new"),
+    orderSnapshotJson: text("order_snapshot_json").notNull().default("{}"),
+    locale: text("locale").notNull().default("en"),
+    contentJson: text("content_json").notNull().default("{}"),
+    originalText: text("original_text").notNull().default(""),
+    publicText: text("public_text").notNull().default(""),
+    status: text("status").notNull().default("pending_review"),
+    riskFlagsJson: text("risk_flags_json").notNull().default("[]"),
+    templateVersion: text("template_version").notNull().default(""),
+    submittedAt: text("submitted_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    reviewedAt: text("reviewed_at"),
+    publishedAt: text("published_at"),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("feedback_entries_status_published_idx").on(
+      table.status,
+      table.publishedAt,
+    ),
+    index("feedback_entries_source_submitted_idx").on(
+      table.sourceType,
+      table.submittedAt,
+    ),
+    index("feedback_entries_expires_at_idx").on(table.expiresAt),
+    uniqueIndex("feedback_entries_manual_order_idx").on(table.manualOrderId),
+    uniqueIndex("feedback_entries_sample_case_idx").on(table.sampleCaseId),
+  ],
+);
+
+export const feedbackModerationActions = sqliteTable(
+  "feedback_moderation_actions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    feedbackId: integer("feedback_id")
+      .notNull()
+      .references(() => feedbackEntries.id, { onDelete: "cascade" }),
+    actor: text("actor").notNull(),
+    action: text("action").notNull(),
+    note: text("note").notNull().default(""),
+    beforeJson: text("before_json").notNull().default("{}"),
+    afterJson: text("after_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("feedback_actions_feedback_id_idx").on(table.feedbackId),
+  ],
+);
+
+export const feedbackGeneratorSettings = sqliteTable(
+  "feedback_generator_settings",
+  {
+    id: integer("id").primaryKey().default(1),
+    generationEnabled: integer("generation_enabled", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    dailyMaximum: integer("daily_maximum").notNull().default(1),
+    generationRateBps: integer("generation_rate_bps").notNull().default(3500),
+    publicLimit: integer("public_limit").notNull().default(48),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+);
+
+export const feedbackGeneratorMeta = sqliteTable(
+  "feedback_generator_meta",
+  {
+    key: text("key").primaryKey(),
+    value: text("value").notNull(),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
 );

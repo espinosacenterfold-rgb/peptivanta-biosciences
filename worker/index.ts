@@ -2,17 +2,23 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import {
+  cleanupExpiredMedia,
+  maintainFeedbackLedger,
+} from "../lib/feedback-ledger";
+import { cleanupExpiredCustomerAuth } from "../lib/customer-auth";
+import {
   applyAntiScrapingHeaders,
   crawlerBlockedResponse,
   hotlinkBlockedResponse,
   isCrossSiteAssetRequest,
   isKnownTrainingCrawler,
-  isProtectedAssetPath,
+  isProtectedStaticAssetPath,
 } from "./anti-scraping";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  MEDIA: R2Bucket;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -59,7 +65,7 @@ const worker = {
     // Protected static paths are selectively configured with
     // assets.run_worker_first. Fetch them from the ASSETS binding after the
     // request passes the crawler and hotlink checks.
-    if (isProtectedAssetPath(url.pathname)) {
+    if (isProtectedStaticAssetPath(url.pathname)) {
       const response = await env.ASSETS.fetch(request);
       return applyAntiScrapingHeaders(response, url.pathname);
     }
@@ -78,6 +84,19 @@ const worker = {
 
     const response = await handler.fetch(request, env, ctx);
     return applyAntiScrapingHeaders(response, url.pathname);
+  },
+  async scheduled(
+    _controller: ScheduledController,
+    _env: Env,
+    ctx: ExecutionContext,
+  ) {
+    ctx.waitUntil(
+      Promise.all([
+        maintainFeedbackLedger(),
+        cleanupExpiredMedia(),
+        cleanupExpiredCustomerAuth(),
+      ]).then(() => undefined),
+    );
   },
 };
 

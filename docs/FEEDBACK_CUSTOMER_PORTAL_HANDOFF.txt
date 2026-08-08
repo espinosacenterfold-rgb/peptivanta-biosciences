@@ -1,0 +1,533 @@
+PEPTIVANTA 反馈中心与轻量客户门户——方案与 AI 交接上下文
+======================================================================
+
+文档状态
+----------------------------------------------------------------------
+- 编写日期：2026-08-05；实施更新：2026-08-08（Asia/Shanghai）
+- 当前状态：方案已经落地到源码，构建、迁移和测试进入最终验证阶段。
+- 已新增客户账号、订单绑定、反馈中心、独立审核后台、客户后台、素材库、R2 绑定、
+  180 天清理任务和 TikSave/KuKuTool 合规辅助入口。
+- 正式运行还依赖两个 Cloudflare Secret：FULFILLMENT_ADMIN_KEY 与
+  CUSTOMER_AUTH_SECRET；真实值不得写进本文档或 GitHub。
+- 当前站点源码目录：C:\Users\33171\Desktop\myseverv\site
+- 线上域名：https://peptivanta.com
+- 私有 GitHub 仓库：https://github.com/espinosacenterfold-rgb/peptivanta-biosciences
+- 编写方案时本地 HEAD：6e7dc860ff3f2132c613e88ef7ba116e33a0825f
+
+
+一、项目现状（后续接手者先读）
+----------------------------------------------------------------------
+1. 网站是面向美国、加拿大、巴西、墨西哥等市场的 B2B 多肽供应独立站。
+2. 当前运行在 Cloudflare Workers，数据库使用 D1；.openai/hosting.json 中已有 DB 绑定。
+3. 源码已声明 R2 逻辑绑定 MEDIA，Wrangler 默认桶名为 peptivanta-feedback-media。
+   正式部署前需在对应 Cloudflare 账号创建该桶；图片不能写入 public 目录。
+4. 已有公开履约页：/fulfillment
+5. 已有公开履约 API：/api/fulfillment-cases
+6. 已有两个隐藏后台页面，顶级 /admin 故意返回 404：
+   - /admin/orders：真实订单管理
+   - /admin/generator：模拟订单生成管理
+7. 两个后台使用同一 Cloudflare Worker Secret：FULFILLMENT_ADMIN_KEY。
+   该密钥绝不能写入源码、本文档、浏览器 localStorage 或 GitHub。
+8. 当前订单数据已经严格区分：
+   - fulfillment_cases：模拟订单
+   - fulfillment_generator_settings：模拟器设置
+   - fulfillment_ledger_meta：模拟器账本元数据
+   - manual_fulfillment_orders：后台人工登记的真实订单
+   - manual_fulfillment_order_items：真实订单的多产品明细
+9. 模拟订单的现有原则：每日增量生成，旧记录稳定保留；公开最多展示约 300 条，数据库
+   有更高保留上限；支持多产品、首单/复购、不同市场和服务类型。真实订单与模拟订单不互相
+   覆盖或删除。
+10. 本方案不能破坏现有订单稳定性和“真实/模拟隔离”原则。
+
+
+二、本次用户想要的功能
+----------------------------------------------------------------------
+1. 在履约表格下方（用户截图红框区域）补充一个反馈预览区，并提供独立反馈页面。
+2. 从部分模拟订单中抽取记录，生成自然、尽量不重复的正向“示例服务反馈”；不能每笔订单
+   都生成反馈，要有符合业务节奏的抽样比例。示例反馈和真实反馈可以在同一个预览区和列表
+   中展示，只需要在每张卡片上加一个小而清晰的“示例服务反馈”标签，不另开示例页面。
+3. 反馈可根据订单国家、服务类型、首单/复购、产品组合及素材标签自动匹配文案和图片。
+4. 不出现治疗、剂量、疾病、人体使用或具体药效等敏感表述。
+5. 真实客户可以通过轻量客户入口登录，只开放查看已关联订单和提交/修改反馈的能力。
+6. 客户不仅可以通过订单邀请进入，也可以先注册普通账号；注册和登录不依赖邮件验证码。
+   首页应保留一个低调的“Customer access”入口。普通注册账号只有在完成真实订单绑定后，
+   才能提交与该订单关联、可申请公开的真实反馈。
+7. 真实客户反馈提交后不能直接公开；后台必须显示待审核提醒，人工审核后才能发布。
+8. 后台能够管理真实反馈和示例反馈，并能审核客户资料、查看资料修改留痕。反馈审核不能
+   塞进真实订单页面，而应拥有独立页面；另外增加一个类似宝塔首页的轻量后台总面板，作为
+   订单、模拟器、反馈、客户和素材库的统一入口，不需要重做整个后台视觉系统。
+9. 客户信息保存到数据库；资料更新要正确匹配同一客户，更新当前资料的同时保留历史版本。
+10. 示例反馈的图片由管理员从素材库选择，也可设为次日开始自动轮换。素材库支持手动上传，
+    并提供 TikTok/小红书链接导入入口；导入必须遵守平台接口和版权规则，不能做破解下载器。
+11. 素材以高质量、轻量化衍生图保存，默认保留最近约 180 天，过期后自动删除二进制文件。
+12. 上述功能已经实现；后续接手者应以源码、README 与 0008 数据库迁移为准。
+
+
+三、必须遵守的合规边界（最重要）
+----------------------------------------------------------------------
+1. 不能生成虚构评论后，把它包装成“真实客户评价”“已验证买家评价”或真实成交证明。
+2. 美国 FTC 的 Consumer Reviews and Testimonials Rule 已明确覆盖 AI 生成、并非来自真实
+   体验或虚构人物的假评论。加拿大 Competition Bureau 也把伪装成真实消费者意见的
+   “astroturfing”视为误导营销风险。
+3. 因此系统必须分为两种完全不同的来源：
+   A. customer_submitted：真实客户基于关联订单提交，人工批准后公开；
+   B. illustrative：程序基于模拟履约记录生成的“示例服务反馈”，始终显著标注
+      “Illustrative service-feedback example / 示例服务反馈”，不得伪装成真实客户。
+4. 按本次确认，真实与示例反馈在同一公共预览区和列表中展示。示例卡片使用体积较小但清楚
+   可读的“示例服务反馈”标签；标签应在标题或来源行附近持续可见，不可折叠、不可只放在
+   hover 提示中，也不可由前端参数隐藏。真实反馈可以显示“客户提交 · 已审核”小标签。
+5. 不建议使用“效果好”。该措辞容易被理解为产品功效或人体效果。安全主题应限于：
+   - 沟通响应速度
+   - 订单确认清晰度
+   - 文件/COA 获取便利性
+   - 包装外观和到货完整性
+   - 规格与订单一致性
+   - 履约进度更新
+   - 多产品组合处理
+   - 复购流程便利性
+6. “纯度高”也不能作为没有证据的主观承诺。只有在对应订单/批次确有 COA 或分析数据时，
+   才可用更克制的措辞，例如“该批次文件清楚列示了分析纯度结果”。不要把某一批次结果
+   推广为所有产品的一般性保证。
+7. 不要公开客户姓名、公司全称、手机号、邮箱、地址、原始订单号或可反查身份的照片。
+8. 真实客户照片发布前需要明确授权；上传页要提示客户确认拥有图片权利并允许网站展示。
+9. 法律参考（实现前仍建议由目标市场专业人士复核）：
+   - FTC 最终规则：
+     https://www.ftc.gov/news-events/news/press-releases/2024/08/federal-trade-commission-announces-final-rule-banning-fake-reviews-testimonials
+   - FTC 问答：
+     https://www.ftc.gov/business-guidance/resources/consumer-reviews-testimonials-rule-questions-answers
+   - 加拿大 Competition Bureau 在线评论指引：
+     https://competition-bureau.canada.ca/en/deceptive-marketing-practices-digest-volume-1
+   - 加拿大 testimonials 规则说明：
+     https://competition-bureau.canada.ca/en/deceptive-marketing-practices/types-deceptive-marketing-practices/use-tests-or-testimonials
+   - 巴西 ANPD 指南入口：
+     https://www.gov.br/anpd/pt-br/centrais-de-conteudo/materiais-educativos-e-publicacoes
+
+
+四、推荐的公开页面设计
+----------------------------------------------------------------------
+A. 履约页下方预览区（截图红框）
+- 标题：Buyer service feedback / 采购服务反馈
+- 显示 3～6 条最新“已批准”的反馈卡片。
+- 卡片字段建议：小型来源标签、国家、服务类型、首单/复购、反馈正文、反馈日期。
+- 真实和示例反馈混排，但示例反馈必须始终显示“示例服务反馈”小标签；标签不能小到难以辨认。
+- 可展示产品类别，但不展示订单金额、精确数量、真实订单编号或客户身份。
+- 右上角放“View all feedback”链接到 /feedback。
+- 如果没有真实反馈，页面不要伪造星级总分。可以只显示示例反馈区并清楚标注来源。
+
+B. 独立反馈页 /feedback
+- 筛选项：全部、美国、加拿大、巴西、墨西哥；目录供应、贴牌、定制、大货；首单、复购。
+- 默认按发布日期倒序，不按订单发生日期强行置顶。
+- 真实反馈和示例反馈同列表展示，用小型但清楚的来源标签区分，不单独拆页。
+- 页面只查询 status=approved 且 published_at 不为空的内容。
+- 不提供“只看好评”或暗中隐藏负面反馈的误导设计；可以按主题筛选，但不能声称页面代表
+  所有已收到反馈，除非确实完整公开。
+
+C. 首页登录入口
+- 不放在首屏主按钮里，避免破坏 B2B 询盘路径。
+- 建议放在页头语言菜单旁的小型 “Customer access” 链接，以及页脚同名入口。
+- 登录页：/customer/access
+- 注册页可以与登录页使用同一张卡片切换：/customer/access?mode=register
+- 客户中心：/customer/feedback（首期只显示已关联订单、反馈状态、资料页和退出按钮）
+
+D. 轻量后台总面板
+- 保留顶级 /admin 返回 404 的现状，避免在公开路径上出现醒目的后台入口。
+- 在当前隐藏管理体系内新增一个“控制台主页”，视觉类似宝塔的应用卡片面板，但复用现有字体、
+  颜色、认证和组件，不整体重写后台。
+- 面板卡片：真实订单、模拟订单、反馈审核、客户账号、素材库；每张卡片显示待处理数量和
+  最近更新时间。
+- 反馈审核保持独立页面，不嵌入真实订单表格。订单详情仅提供“查看关联反馈”的跳转。
+- 具体隐藏入口路径在实现时由用户决定；隐藏路径不是安全措施，所有页面仍必须经过认证。
+
+
+五、示例反馈生成逻辑
+----------------------------------------------------------------------
+1. 只从已经“已完成/已签收”的模拟订单中抽取，不从生产中、审核中或已发运订单抽取。
+2. 默认抽样率建议 8%～18%，并让每日新增量在 0～5 条内波动；不是每天强行有反馈。
+3. 反馈日期必须晚于订单完成日期，建议间隔 2～12 天；周末概率降低。
+4. 生成后写入数据库，永久保存正文和来源，不随第二天刷新而改写。
+5. 唯一键可采用：source_type + order_reference，保证同一模拟订单最多一条当前反馈。
+6. 使用 order_reference + completed_at + template_version 作为确定性随机种子。
+7. 文案不是简单随机拼三句话。应先确定“反馈画像”，再从多语言语料池组合：
+   - 国家/语言偏好
+   - 目录、贴牌、定制或大货
+   - 首单或复购
+   - 单产品或多产品组合
+   - 可评论主题（沟通、文件、包装、进度、准确性）
+8. 至少准备 20～30 个开头、40～60 个主体句和 15～20 个收尾；按语言分别维护，不能
+   先用机器翻译后把所有市场都写成同一种语气。
+9. 生成后运行内容过滤：
+   - 禁止疾病、治疗、减重、增肌、注射、剂量、人体效果、医生建议等词组；
+   - 禁止绝对化词汇，如“100%”“保证”“最纯”“零风险”；
+   - 没有批次证据时禁止“purity/纯度”断言；
+   - 禁止客户真实身份和联系方式。
+10. 运行重复度检测：对规范化文本做 3-gram/Jaccard 或 MinHash，相似度超过建议阈值
+    （例如 0.68）则重新选模板；同一公开页不得连续出现相同句式。
+11. source_type=illustrative 的来源标签由服务端返回并由公共组件固定渲染，前端不能根据
+    query 参数或语言包把标签隐藏。
+12. 首发阶段建议示例反馈也进入人工审核；稳定后才允许“通过安全规则的示例反馈”自动批准。
+
+
+六、真实反馈流程
+----------------------------------------------------------------------
+1. 真实客户只能对与其 customer_id 关联、且状态达到已完成/已签收的真实订单提交反馈。
+2. 一笔订单只允许一条当前反馈，但允许客户修改；每次修改新增一个 version，绝不覆盖原文。
+3. 状态流程：
+   draft -> submitted -> pending_review -> approved
+                                   |-> changes_requested
+                                   |-> rejected
+   approved -> unpublished / withdrawn
+4. 新提交或修改后的真实反馈一律进入 pending_review，不能自动出现在公共页面。
+5. 后台显示待审核数字角标，并将真实反馈置于审核队列上方；这只是后台提醒，不发邮件。
+6. 审核员可以：预览、批准、退回修改、拒绝、撤下已公开反馈、屏蔽图片。
+7. 审核员若要删除敏感信息，不直接覆盖客户原文，而是填写 public_redacted_text；数据库保留
+   original_text、公开版本和修改理由。
+8. 每一个审核动作写入不可变 audit log，包括 actor、action、before_json、after_json、时间、
+   reason、IP 摘要和 User-Agent 摘要。
+9. 真实反馈卡片可以显示“Customer-submitted · reviewed”，但不要使用“verified buyer”，除非
+   系统已经严格验证订单归属并定义了公开规则。
+
+
+七、图片素材与自动匹配
+----------------------------------------------------------------------
+1. D1 只存图片元数据，二进制图片放私有 R2。
+2. 首期使用管理员手动上传并审核过的素材。管理员可以为每张图片选择：立即可用、指定日期
+   可用、次日开始可用；因此今天上传的素材可以从第二天开始被示例反馈自动匹配。
+3. 每条示例反馈生成时保存 asset_id，不能在每次刷新时随机换图。如果次日需要“更新图片”，
+   应只影响新生成的示例反馈，历史反馈仍保持原图；管理员可显式替换或撤下某条历史图片。
+4. 图片标签：packaging、documentation、shipping、support、multi_product、private_label、
+   catalog、repeat_order、US、CA、BR、MX。反馈主题与标签匹配，例如“文件清晰”只匹配
+   documentation，不要随机放生产线照片。
+5. 通用素材或合成素材只能标注为“Illustrative image / 示意图片”，不能伪装成客户上传。
+6. 真实上传处理：限制 JPG/PNG/WebP、大小和像素；检查真实文件类型；重新解码压缩；去除
+   EXIF/GPS；扫描恶意内容；生成缩略图；原图私有；使用短时签名 URL 或 Worker 受控输出。
+7. 高质量轻量化建议保存两个衍生版本，不直接向公共页面发送原图：
+   - 卡片缩略图：约 480px 宽，WebP/AVIF，目标 40～100 KB；
+   - 详情图：约 1280px 宽，WebP/AVIF，目标 120～350 KB。
+   管理后台浏览器可以先生成衍生图，再上传；服务端仍要核验 MIME、大小、尺寸和文件头。
+8. OCR/人工审核需要拦截快递单、姓名、电话、地址、邮箱、二维码、条码和患者/医疗信息。
+9. feedback_assets 中必须保存 consent_at、consent_version、moderation_status、source_type、
+   r2_key、sha256、width、height、alt_text、tags_json。
+
+链接导入入口（仅管理员可用）：
+10. 素材库提供“粘贴链接”输入框，但不是任意网页下载器。只接受 HTTPS，并使用域名白名单、
+    DNS/IP 检查、严格重定向次数、响应大小上限和 MIME 白名单，防止 SSRF 和大文件拖垮 Worker。
+11. TikTok：优先调用官方 oEmbed 获取作者、标题、预览和嵌入信息：
+    https://developers.tiktok.com/doc/embed-videos/
+    默认保存规范化来源 URL 和必要元数据；如果管理员确认拥有内容使用权，再上传自有原文件
+    生成站内轻量图片。不要利用第三方无水印下载接口绕过平台限制。
+12. 小红书：当前不要承诺通用解析/下载。保存规范化来源链接和管理员备注；若不能通过官方
+    能力合法获取素材，则提示管理员手动上传其拥有授权的原文件。不能抓登录 Cookie、调用
+    隐藏接口或绕过平台反爬。
+13. 每次导入必须勾选“我拥有或已取得该素材在本站使用的权利”，并保存 source_url、
+    source_platform、source_author、rights_basis、rights_confirmed_at、imported_by。
+14. 不直接执行第三方返回的 embed HTML/script；若确实采用 TikTok 官方嵌入，应独立做严格
+    allowlist/sanitization，并考虑其外部 Cookie 和隐私政策。用于反馈卡片时仍建议使用经授权、
+    手动上传的静态图片，而不是嵌入整段视频。
+
+保留与清理策略：
+15. 素材默认保留 180 天。R2 对 media/ 前缀设置 180 天生命周期规则；Cloudflare 官方支持
+    按对象年龄自动删除：https://developers.cloudflare.com/r2/buckets/object-lifecycles/
+16. 建议原始上传文件只保留 7～30 天，审核完成后尽早删除；公开衍生图保留 180 天。
+17. R2 删除二进制后，D1 中保留轻量审计元数据、来源和 hash，状态改为 expired；公共反馈
+    自动降级成纯文字卡片，不能出现破图。
+18. 设单张原图上限 8 MB、管理员每日导入上限和总存储软阈值（例如 7 GB 预警、9 GB 暂停
+    新导入）。R2 Standard 当前免费额度包含每月 10 GB-month、100 万 Class A 和 1000 万
+    Class B 操作，但额度和价格会变化，实现时以官方页面为准：
+    https://developers.cloudflare.com/r2/pricing/
+
+
+八、轻量客户登录（不使用邮件验证码）
+----------------------------------------------------------------------
+用户提出“验证码不发邮箱”。这里必须区分两种东西：
+- 图片/Turnstile 验证码只能防机器人，不能证明客户是谁；
+- 登录凭证必须能把客户安全地绑定到真实订单。
+
+推荐拆成“注册账号”和“绑定订单”两个流程：
+1. 任何客户都可以注册普通账号：自定义用户名 + 密码（或较长 PIN）+ Cloudflare Turnstile。
+   不要求订单参考号，也不发送邮件验证码。用户名必须唯一并做大小写规范化。
+2. 注册成功后的账号状态为 active_unlinked，可登录、修改基础资料，但不能提交可公开的真实订单反馈。
+3. 客户有真实订单后，在客户中心输入“订单参考号 + 一次性订单绑定码”。绑定码由后台在对应
+   真实订单上生成，销售人员通过已有 WhatsApp/业务渠道发送，不通过网站邮件。
+4. 服务端验证订单绑定码后创建 customer_order_links；绑定码立即失效。客户之后可评价已关联、
+   且达到已完成/已签收状态的订单。
+5. 如果客户通过邀请链接首次进入，也可以先完成订单绑定，再引导其设置用户名和密码；两条
+   注册路线最终都归并到同一个 customer_id，不能重复建客户。
+6. 密码、PIN、邀请代码、恢复代码、会话令牌一律只保存现代加盐哈希，绝不能明文保存。
+   用户说的“客户信息明文”最多只适用于普通资料字段，不适用于任何登录凭证。
+7. 不使用邮箱会让自动找回密码变弱。注册完成时生成一组一次性恢复码，只显示一次；丢失后
+   由销售/管理员核对订单信息并重新签发，不能通过公开资料自动找回。
+8. 会话使用 HttpOnly + Secure + SameSite=Lax/Strict Cookie；数据库只保存 session token 的哈希。
+9. Turnstile token 必须调用 Siteverify 在服务端验证；只放前端组件等于没有保护。
+   官方说明：https://developers.cloudflare.com/turnstile/get-started/server-side-validation/
+10. 登录、注册、订单绑定和提交反馈都要分别限速；连续失败锁定短时间，并记安全事件。
+11. 模拟订单中的 customer_key 只服务于复购生成逻辑，绝不能用作真实客户身份或登录依据。
+
+
+九、客户资料、自动匹配和留痕
+----------------------------------------------------------------------
+1. 建立稳定 customer_id，与一个或多个真实订单建立 customer_order_links。
+2. 建议只收集业务所需的最少字段：公司显示名、联系人别名、国家、语言、WhatsApp（如确有
+   必要）、授权/隐私版本和时间。不要为了“以后可能用”收集更多资料。
+3. 普通资料可作为 D1 字段保存，但电话号码属于个人数据，至少应限制后台权限、页面掩码显示，
+   条件允许时做字段级加密；不要对所有管理员完整显示。
+4. 客户修改资料时，在同一事务里：
+   - 向 customer_profile_versions 插入修改前/后的快照；
+   - 更新 customers 当前版本；
+   - 写 customer_change_log；
+   - 增加 profile_version。
+5. 语言、公开显示别名等低风险字段可立即生效；联系电话、订单关联、公司身份等高风险修改要
+   二次验证并进入后台人工审核。
+6. 客户不能改订单金额、产品、规格、状态或订单归属。
+7. 后台客户页显示：状态、关联订单、提交反馈、资料版本、登录时间、会话撤销和风险标记。
+
+
+十、建议数据库结构（名称可在实现时微调）
+----------------------------------------------------------------------
+1. customers
+   id, public_id, username, username_normalized, status(active_unlinked/active/suspended/deleted),
+   company_display_name,
+   contact_alias, country_code, language, whatsapp_masked, profile_version,
+   privacy_consent_version, privacy_consent_at, created_at, updated_at
+   UNIQUE(username_normalized)
+
+2. customer_credentials
+   id, customer_id, credential_type(password/order_link/recovery), secret_hash, salt,
+   expires_at, used_at, failed_attempts, locked_until, created_at
+
+3. customer_sessions
+   id, customer_id, token_hash, expires_at, revoked_at, created_at, last_seen_at,
+   ip_hash, user_agent_hash
+
+4. customer_order_links
+   id, customer_id, manual_order_id, relationship(primary/authorized), created_at,
+   created_by, revoked_at
+   UNIQUE(customer_id, manual_order_id)
+
+5. customer_profile_versions
+   id, customer_id, version, snapshot_json, change_source(customer/admin),
+   review_status, created_at
+
+6. feedback_entries
+   id, public_id, source_type(customer_submitted/illustrative), manual_order_id nullable,
+   simulated_case_id nullable, customer_id nullable, locale, country_code, service_type,
+   order_kind, original_text, public_redacted_text, rating nullable, status,
+   risk_flags_json, template_version nullable, submitted_at, reviewed_at, approved_at,
+   published_at, withdrawn_at, created_at, updated_at
+
+   约束：
+   - customer_submitted 必须关联 manual_order_id 和 customer_id；
+   - illustrative 必须关联 simulated_case_id，customer_id 必须为空；
+   - illustrative 在所有公开 API 中必须携带固定来源标签；
+   - 同一订单只允许一条 active feedback。
+
+7. feedback_versions
+   id, feedback_id, version, original_text, public_text, change_source,
+   change_reason, created_at
+
+8. feedback_assets
+   id, feedback_id, source_type(customer_upload/admin_curated/illustrative), r2_key,
+   thumbnail_r2_key, sha256, mime_type, width, height, size_bytes, tags_json,
+   alt_text, available_from, expires_at, consent_version, consent_at, moderation_status, created_at
+
+9. feedback_moderation_actions
+   id, feedback_id, actor_type(admin/system/customer), actor_id nullable, action,
+   reason, before_json, after_json, ip_hash, user_agent_hash, created_at
+
+10. feedback_generator_settings
+    enabled, review_rate_bps, daily_max, languages_json, countries_json,
+    allowed_topics_json, similarity_threshold, require_manual_approval,
+    asset_policy, template_version, updated_at
+
+11. feedback_generator_meta
+    last_generated_date, last_order_cursor, last_run_at, created_count, updated_at
+
+12. admin_notifications
+    id, type, entity_type, entity_id, severity, read_at, created_at
+
+13. media_library_assets
+    id, public_id, status(pending/approved/scheduled/expired/rejected), source_type,
+    source_platform(manual/tiktok/xiaohongshu/other), source_url, source_author,
+    rights_basis, rights_confirmed_at, rights_confirmed_by, original_r2_key nullable,
+    display_r2_key, thumbnail_r2_key, sha256, mime_type, width, height, size_bytes,
+    tags_json, available_from, expires_at, last_used_at, use_count, created_at, updated_at
+
+14. media_import_jobs
+    id, submitted_url, normalized_url, platform, status, metadata_json, error_code,
+    submitted_by, created_at, finished_at
+
+15. feedback_asset_links
+    id, feedback_id, media_asset_id, linked_at, unlinked_at, linked_by
+    UNIQUE(feedback_id, media_asset_id)
+
+建议索引：
+- feedback_entries(status, published_at DESC)
+- feedback_entries(source_type, status, submitted_at DESC)
+- feedback_entries(manual_order_id)
+- feedback_entries(simulated_case_id)
+- customer_order_links(manual_order_id)
+- customer_profile_versions(customer_id, version DESC)
+- admin_notifications(read_at, created_at DESC)
+- media_library_assets(status, available_from, expires_at)
+- media_library_assets(source_platform, created_at DESC)
+- feedback_asset_links(feedback_id)
+
+
+十一、建议页面和接口
+----------------------------------------------------------------------
+公开页面：
+- GET /feedback
+- GET /api/feedback?country=&service=&source=&cursor=
+
+客户页面：
+- GET /customer/access
+- GET /customer/feedback
+- POST /api/customer/auth/verify-invite
+- POST /api/customer/auth/register
+- POST /api/customer/auth/session
+- DELETE /api/customer/auth/session
+- GET /api/customer/profile
+- PATCH /api/customer/profile
+- GET /api/customer/orders
+- POST /api/customer/feedback
+- PATCH /api/customer/feedback/:id
+- POST /api/customer/feedback/:id/assets（后期开启）
+
+隐藏管理页（延续当前导航，不新增醒目的 /admin 首页）：
+- /admin/orders：真实订单
+- /admin/generator：模拟订单
+- /admin/feedback：反馈审核，显示待审核真实反馈角标
+- /admin/customers：客户审核
+- /admin/media：素材库、手动上传、链接导入和次日排期
+
+管理接口：
+- GET/PATCH /api/admin/feedback
+- POST /api/admin/feedback/:id/approve
+- POST /api/admin/feedback/:id/request-changes
+- POST /api/admin/feedback/:id/reject
+- POST /api/admin/feedback/:id/unpublish
+- GET/PATCH /api/admin/feedback-generator
+- GET/PATCH /api/admin/customers
+- POST /api/admin/customers/:id/revoke-sessions
+- POST /api/admin/orders/:id/customer-invite
+- GET/POST/PATCH/DELETE /api/admin/media
+- POST /api/admin/media/import-link
+- POST /api/admin/media/:id/schedule
+
+所有写接口要求：严格 JSON schema、字段长度限制、Origin/CSRF 检查、Turnstile（客户入口）、
+速率限制、服务端权限判断、事务、审计。不要依赖前端隐藏按钮作为权限保护。
+
+
+十二、后台信息架构
+----------------------------------------------------------------------
+统一使用现有管理认证和同一套后台壳，增加一个轻量控制台首页，但不大改现有后台：
+1. 控制台主页：类似宝塔的卡片面板，只负责入口、状态和待办数字。
+2. 真实订单：保持独立页面。
+3. 模拟订单：保持独立页面。
+4. 反馈审核：独立页面，有未处理真实反馈时显示数字角标。
+5. 客户审核：独立页面。
+6. 素材库：独立页面，负责上传、链接导入、标签、排期、使用记录和过期状态。
+
+反馈后台筛选：来源、状态、国家、服务类型、产品、首单/复购、风险词、是否带图。
+反馈后台动作：预览、批准、退回、拒绝、编辑公开脱敏版、撤下、图片屏蔽、查看完整留痕。
+示例生成控制：开关、抽样率、每日上限、市场权重、语言权重、允许主题、重复度阈值、是否全部
+人工审核、是否使用通用图片、一键暂停。
+
+
+十三、推荐实施顺序
+----------------------------------------------------------------------
+阶段 0：确定政策与文案
+- 决定是否公开任何“示例服务反馈”；若公开，确认所有语言下的显著来源标签。
+- 更新 Privacy Policy、Terms、图片授权与内容审核说明。
+
+阶段 1：数据层与安全骨架
+- 新增 D1 migration、账号注册、客户会话、订单绑定码、审计、Turnstile、速率限制。
+- 先做隐藏后台客户页和反馈审核页，不在公开页面展示内容。
+- 补一个复用现有样式的轻量控制台主页，不重构原订单后台。
+
+阶段 2：真实反馈闭环
+- 订单关联 -> 邀请码登录 -> 提交 -> 后台提醒 -> 审核 -> 公开。
+- 先只允许纯文本，验证权限和留痕。
+
+阶段 3：公开反馈 UI
+- 履约页红框预览 + /feedback 独立页 + 多语言。
+- 仅查询已批准内容，真实/示例来源标签强制显示。
+
+阶段 4：示例反馈生成器
+- 确定性抽样、模板库、禁用词、重复度检测、生成后持久化。
+- 初期所有示例内容也要求人工批准。
+
+阶段 5：图片
+- 建立私有 R2、180 天生命周期、素材库、手动上传、次日排期和授权流程。
+- TikTok 只走官方 oEmbed/来源记录，小红书不能合法解析时回退为手动上传。
+- 最后才考虑开放客户上传。
+
+
+十四、验收测试清单
+----------------------------------------------------------------------
+1. /admin 仍为 404，新的隐藏后台必须要求管理密钥。
+2. 客户 A 无法查看或评价客户 B 的订单；篡改 ID 也返回 404/403。
+3. 邀请码只能用一次、会过期；PIN/邀请码/会话令牌在数据库里看不到明文。
+4. Turnstile 在服务端验证；重复 token 和过期 token 被拒绝。
+4a. 未绑定订单的注册账号可以登录和维护资料，但不能给任何订单提交公开反馈。
+4b. 订单绑定码不能被第二个账号重复使用，绑定过程写入审计。
+5. 真实反馈在 approved 前绝不会出现在 /api/feedback。
+6. 所有 illustrative 内容在任何语言和设备上都显示不可隐藏的来源标签。
+7. 真实反馈修改后重新进入审核，旧版本仍可追溯。
+8. 禁止词覆盖英语、中文、葡萄牙语、西班牙语、法语；医疗/功效内容被拦截。
+9. 没有对应批次证据时，“高纯度/最纯/purity guaranteed”等内容不能发布。
+10. 示例反馈生成后第二天不改写；同一模拟订单不会重复生成。
+11. 新生成文本与既有文本相似度超过阈值时不会入库。
+12. 新真实反馈在后台产生未读提醒；批准/拒绝后提醒状态正确。
+13. 资料修改生成 before/after 版本；高风险资料修改需要审核。
+14. 图片去除 EXIF/GPS，私有 R2 不可目录浏览，未经批准的图片不能公开。
+14a. 次日排期素材不会改写历史反馈图片，只影响排期后的新反馈。
+14b. R2 素材过期后公共卡片自动退化成纯文本，不出现 404 破图。
+14c. 任意 URL、内网地址、非白名单跳转、超大文件和错误 MIME 导入均被拒绝。
+15. 公共 API 不返回客户手机号、邮箱、公司全称、真实订单号和内部数据库 ID。
+16. 在移动端验证履约表下方反馈区不会制造过长空白，卡片可滑动/换行并可触达独立页。
+
+
+十五、尚需用户决定，但不阻碍先做基础架构的问题
+----------------------------------------------------------------------
+1. 一次性客户邀请码由业务人员通过 WhatsApp 发送，还是印在发票/订单确认单上？
+   推荐：后台生成，通过已有 WhatsApp 业务对话发送。
+2. 公共页面是否真的需要展示“示例反馈”？
+   用户已确认与真实反馈混排，只加小标签。因此实现时必须保证标签清晰、持续可见，示例反馈
+   不计入真实客户统计或星级汇总。
+3. 客户资料实际需要哪些字段？
+   推荐最小化，只留公司显示名、联系人别名、国家、语言、必要联系方式。
+4. 首发是否允许客户上传图片？
+   推荐不允许客户自由上传。先提供后台素材库和管理员上传，完成纯文本与审核闭环后再开放。
+5. 首批反馈语言？
+   推荐英语为主，葡萄牙语和西班牙语次之；中文和法语随后补齐。
+6. 示例反馈是否全部人工审核？
+   推荐首期全部人工审核，积累安全模板后再考虑自动批准。
+7. 用户注册密码的最低强度和恢复方式？
+   推荐至少 10 个字符；无邮件情况下生成一次性恢复码，并保留管理员核验恢复渠道。
+
+
+十六、下一位 AI 的实施约束
+----------------------------------------------------------------------
+1. 开始编码前再次检查 git status，不能覆盖用户未提交的修改。
+2. 不得读取或输出 FULFILLMENT_ADMIN_KEY、Turnstile Secret 或未来的客户凭证。
+3. 必须用新的 Drizzle migration/兼容迁移扩展数据库，不要删除或重建现有订单表。
+4. 不得清空 fulfillment_cases 或 manual_fulfillment_orders；反馈功能必须是增量扩展。
+5. 不得用模拟订单的 customer_key 作为客户登录身份。
+6. 不得把程序生成内容标记为真实客户评论或已验证购买。
+7. 不得以“用户要求明文”为由明文存储密码、PIN、邀请码、恢复码或 session token。
+8. 完成每个阶段后先本地测试，再经用户明确同意才提交 GitHub/部署 Cloudflare。
+9. 先做真实反馈、安全登录和人工审核，再做示例生成和图片功能。
+10. 链接导入不得实现或接入绕过平台限制、去水印、盗用 Cookie、隐藏 API 的下载器。
+11. 清理 R2 时只删除到期二进制文件；D1 中保留最小审计元数据，不能因清理素材删除订单、
+    反馈正文或审核记录。
+
+
+最终推荐结论
+----------------------------------------------------------------------
+该功能可以在当前 Cloudflare Workers + D1 架构上轻量实现，不需要一开始接入复杂 CRM 或邮件
+服务。最稳妥的产品路线是“账号注册 + 订单绑定码 + Turnstile + 安全会话 + 真实反馈人工审核
++ 不可变留痕”。
+程序生成内容只能作为显著标注的服务场景示例，不能伪装成真实客户好评。图片功能应放到最后，
+使用私有 R2、手动素材库、180 天生命周期、去除隐私信息并取得授权。TikTok 采用官方 oEmbed
+获取预览，小红书不能合法解析时要求手动上传，绝不做破解下载。这样既能增强页面可信度，也
+不会用虚假社会证明或未经授权的素材给品牌带来目标市场合规风险。

@@ -270,6 +270,7 @@ export default function AdminGeneratorPage() {
           </span>
         </div>
         <nav className="admin-console-tabs" aria-label="后台功能切换">
+          <Link href="/admin/workspace">控制台</Link>
           <Link href="/admin/orders">真实订单</Link>
           <Link href="/admin/generator" aria-current="page">模拟订单</Link>
           <Link href="/fulfillment" target="_blank">查看公开页</Link>

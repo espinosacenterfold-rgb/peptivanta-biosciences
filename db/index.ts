@@ -21,6 +21,17 @@ export async function getDb() {
   return drizzle(await getD1Binding(), { schema });
 }
 
+export async function getMediaStore() {
+  const { env } = await import("cloudflare:workers");
+  const runtimeEnv = env as unknown as { MEDIA?: R2Bucket };
+  if (!runtimeEnv.MEDIA) {
+    throw new Error(
+      "Cloudflare R2 binding `MEDIA` is unavailable. Configure the logical R2 binding before uploading feedback media.",
+    );
+  }
+  return runtimeEnv.MEDIA;
+}
+
 const addedColumns = [
   {
     name: "amount_usd_cents",
@@ -142,7 +153,20 @@ const generatorSettingAddedColumns = [
   },
 ] as const;
 
-export async function ensureFulfillmentSchema() {
+let fulfillmentSchemaPromise: Promise<void> | null = null;
+let communitySchemaPromise: Promise<void> | null = null;
+
+export function ensureFulfillmentSchema() {
+  if (!fulfillmentSchemaPromise) {
+    fulfillmentSchemaPromise = initializeFulfillmentSchema().catch((error) => {
+      fulfillmentSchemaPromise = null;
+      throw error;
+    });
+  }
+  return fulfillmentSchemaPromise;
+}
+
+async function initializeFulfillmentSchema() {
   const d1 = await getD1Binding();
   await d1.batch([
     d1.prepare(`
@@ -305,5 +329,204 @@ export async function ensureFulfillmentSchema() {
       ) VALUES (1, 300, 10, 30, 1500, 3500, 1)
       ON CONFLICT(id) DO NOTHING
     `),
+  ]);
+}
+
+/**
+ * Additive community schema. It intentionally calls the existing fulfillment
+ * initializer first because customer order links and feedback rows reference
+ * the two established order tables.
+ */
+export function ensureCommunitySchema() {
+  if (!communitySchemaPromise) {
+    communitySchemaPromise = initializeCommunitySchema().catch((error) => {
+      communitySchemaPromise = null;
+      throw error;
+    });
+  }
+  return communitySchemaPromise;
+}
+
+async function initializeCommunitySchema() {
+  await ensureFulfillmentSchema();
+  const d1 = await getD1Binding();
+
+  await d1.batch([
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        public_id TEXT NOT NULL UNIQUE,
+        username TEXT NOT NULL,
+        username_normalized TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        password_salt TEXT NOT NULL,
+        recovery_hash TEXT NOT NULL,
+        recovery_salt TEXT NOT NULL,
+        display_name TEXT DEFAULT '' NOT NULL,
+        company_name TEXT DEFAULT '' NOT NULL,
+        country_code TEXT DEFAULT '' NOT NULL,
+        locale TEXT DEFAULT 'en' NOT NULL,
+        status TEXT DEFAULT 'active_unlinked' NOT NULL,
+        profile_version INTEGER DEFAULT 1 NOT NULL,
+        privacy_consent_at TEXT NOT NULL,
+        last_login_at TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS customer_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS customer_order_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        order_id INTEGER NOT NULL REFERENCES manual_fulfillment_orders(id) ON DELETE CASCADE,
+        code_hash TEXT NOT NULL,
+        code_salt TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS customer_order_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        order_id INTEGER NOT NULL UNIQUE REFERENCES manual_fulfillment_orders(id) ON DELETE CASCADE,
+        linked_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS customer_profile_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+        actor TEXT NOT NULL,
+        before_json TEXT NOT NULL,
+        after_json TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS auth_rate_limits (
+        key TEXT PRIMARY KEY NOT NULL,
+        action TEXT NOT NULL,
+        attempt_count INTEGER DEFAULT 1 NOT NULL,
+        expires_at TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS media_library_assets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        public_id TEXT NOT NULL UNIQUE,
+        status TEXT DEFAULT 'pending' NOT NULL,
+        source_platform TEXT DEFAULT 'manual' NOT NULL,
+        source_url TEXT DEFAULT '' NOT NULL,
+        source_title TEXT DEFAULT '' NOT NULL,
+        source_author TEXT DEFAULT '' NOT NULL,
+        rights_basis TEXT DEFAULT 'owned_or_authorized' NOT NULL,
+        rights_confirmed_at TEXT NOT NULL,
+        original_filename TEXT DEFAULT '' NOT NULL,
+        r2_key TEXT DEFAULT '' NOT NULL,
+        mime_type TEXT DEFAULT '' NOT NULL,
+        size_bytes INTEGER DEFAULT 0 NOT NULL,
+        width INTEGER DEFAULT 0 NOT NULL,
+        height INTEGER DEFAULT 0 NOT NULL,
+        tags_json TEXT DEFAULT '[]' NOT NULL,
+        available_from TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        use_count INTEGER DEFAULT 0 NOT NULL,
+        last_used_at TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS feedback_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        public_id TEXT NOT NULL UNIQUE,
+        source_type TEXT NOT NULL,
+        manual_order_id INTEGER UNIQUE REFERENCES manual_fulfillment_orders(id) ON DELETE SET NULL,
+        sample_case_id INTEGER UNIQUE REFERENCES fulfillment_cases(id) ON DELETE SET NULL,
+        customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+        media_asset_id INTEGER REFERENCES media_library_assets(id) ON DELETE SET NULL,
+        country_code TEXT DEFAULT '' NOT NULL,
+        service TEXT DEFAULT '' NOT NULL,
+        order_kind TEXT DEFAULT 'new' NOT NULL,
+        order_snapshot_json TEXT DEFAULT '{}' NOT NULL,
+        locale TEXT DEFAULT 'en' NOT NULL,
+        content_json TEXT DEFAULT '{}' NOT NULL,
+        original_text TEXT DEFAULT '' NOT NULL,
+        public_text TEXT DEFAULT '' NOT NULL,
+        status TEXT DEFAULT 'pending_review' NOT NULL,
+        risk_flags_json TEXT DEFAULT '[]' NOT NULL,
+        template_version TEXT DEFAULT '' NOT NULL,
+        submitted_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        reviewed_at TEXT,
+        published_at TEXT,
+        expires_at TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS feedback_moderation_actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        feedback_id INTEGER NOT NULL REFERENCES feedback_entries(id) ON DELETE CASCADE,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        note TEXT DEFAULT '' NOT NULL,
+        before_json TEXT DEFAULT '{}' NOT NULL,
+        after_json TEXT DEFAULT '{}' NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS feedback_generator_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1 NOT NULL,
+        generation_enabled INTEGER DEFAULT 1 NOT NULL,
+        daily_maximum INTEGER DEFAULT 1 NOT NULL,
+        generation_rate_bps INTEGER DEFAULT 3500 NOT NULL,
+        public_limit INTEGER DEFAULT 48 NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS feedback_generator_meta (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+  ]);
+
+  await d1.batch([
+    d1.prepare("CREATE INDEX IF NOT EXISTS customers_status_idx ON customers (status)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS customer_sessions_customer_id_idx ON customer_sessions (customer_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS customer_sessions_expires_at_idx ON customer_sessions (expires_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS customer_order_codes_order_id_idx ON customer_order_codes (order_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS customer_order_codes_expires_at_idx ON customer_order_codes (expires_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS customer_order_links_customer_id_idx ON customer_order_links (customer_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS customer_profile_events_customer_id_idx ON customer_profile_events (customer_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS media_library_assets_status_available_idx ON media_library_assets (status, available_from)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS media_library_assets_expires_at_idx ON media_library_assets (expires_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_status_published_idx ON feedback_entries (status, published_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_source_submitted_idx ON feedback_entries (source_type, submitted_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_expires_at_idx ON feedback_entries (expires_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS feedback_actions_feedback_id_idx ON feedback_moderation_actions (feedback_id)"),
+    d1.prepare(`
+      INSERT INTO feedback_generator_settings (
+        id, generation_enabled, daily_maximum, generation_rate_bps, public_limit
+      ) VALUES (1, 1, 1, 3500, 48)
+      ON CONFLICT(id) DO NOTHING
+    `),
+    d1.prepare("PRAGMA optimize"),
   ]);
 }

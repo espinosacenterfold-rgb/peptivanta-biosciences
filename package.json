@@ -10,13 +10,13 @@
     "build": "vinext build",
     "start": "vinext start",
     "deploy": "npm run build && wrangler deploy -c dist/server/wrangler.json",
-    "test": "npm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/fulfillment-generator.test.mjs tests/anti-scraping.test.mjs",
+    "test": "npm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/fulfillment-generator.test.mjs tests/anti-scraping.test.mjs tests/feedback-customer.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
-    "next": "16.2.6",
+    "next": "16.3.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },

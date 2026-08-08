@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createWhatsAppUrl, siteConfig } from "../../site.config";
 import FulfillmentCases from "../FulfillmentCases";
+import FeedbackPreview from "../feedback/FeedbackPreview";
 import {
   htmlLang,
   isSiteLocale,
@@ -18,30 +19,35 @@ const pageCopy = {
     language: "Language",
     quote: "Request a quote",
     inquiry: "Discuss a product, quantity, destination, and documentation requirement with our team.",
+    account: "Customer access",
   },
   pt: {
     back: "Voltar ao site",
     language: "Idioma",
     quote: "Solicitar cotação",
     inquiry: "Fale com nossa equipe sobre produto, quantidade, destino e documentação necessária.",
+    account: "Acesso do cliente",
   },
   es: {
     back: "Volver al sitio",
     language: "Idioma",
     quote: "Solicitar cotización",
     inquiry: "Consulte a nuestro equipo sobre producto, cantidad, destino y documentación requerida.",
+    account: "Acceso de clientes",
   },
   fr: {
     back: "Retour au site",
     language: "Langue",
     quote: "Demander un devis",
     inquiry: "Échangez avec notre équipe sur le produit, la quantité, la destination et les documents requis.",
+    account: "Accès client",
   },
   zh: {
     back: "返回网站",
     language: "语言",
     quote: "获取报价",
     inquiry: "向我们说明产品、数量、目的地和文件要求，获取进一步回复。",
+    account: "客户登录",
   },
 } as const;
 
@@ -73,6 +79,9 @@ export default function FulfillmentLedgerPage() {
         </Link>
 
         <div className="fulfillment-page-actions">
+          <Link className="customer-access-link" href="/customer/access">
+            {t.account}
+          </Link>
           <Link className="fulfillment-back" href="/">
             <span aria-hidden="true">←</span>{t.back}
           </Link>
@@ -92,6 +101,8 @@ export default function FulfillmentLedgerPage() {
       </header>
 
       <FulfillmentCases locale={locale} />
+
+      <FeedbackPreview locale={locale} />
 
       <section className="fulfillment-page-cta section-shell">
         <p>{t.inquiry}</p>

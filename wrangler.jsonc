@@ -32,9 +32,23 @@
     {
       "binding": "DB",
       "database_name": "peptivanta-production",
-      "database_id": "25d0b424-5766-470a-9236-ac6b57df7b97"
+      "database_id": "25d0b424-5766-470a-9236-ac6b57df7b97",
+      "migrations_dir": "drizzle"
     }
   ],
+
+  // 反馈素材使用独立 R2；朋友部署副本站时请改成自己账号中的 bucket 名称。
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "peptivanta-feedback-media"
+    }
+  ],
+
+  // 每日生成少量示例反馈，并清理超过 180 天的反馈素材。
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
 
   // Next/Image 图片清晰度优化使用的 Cloudflare Images 运行时绑定。
   "images": {

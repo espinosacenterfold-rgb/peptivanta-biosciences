@@ -7,6 +7,7 @@ import {
   crawlerBlockedResponse,
   isCrossSiteAssetRequest,
   isKnownTrainingCrawler,
+  isProtectedStaticAssetPath,
 } from "../worker/anti-scraping.ts";
 
 test("blocks self-identifying training crawlers but keeps search traffic", () => {
@@ -79,6 +80,22 @@ test("blocks cross-site report embedding without blocking direct viewing", () =>
     ),
     false,
   );
+});
+
+test("protects dynamic feedback media without routing it to static assets", () => {
+  const request = new Request(
+    "https://peptivanta.com/api/media/media_example",
+    {
+      headers: {
+        referer: "https://copy.example/reviews",
+        "sec-fetch-site": "cross-site",
+      },
+    },
+  );
+
+  assert.equal(isCrossSiteAssetRequest(request), true);
+  assert.equal(isProtectedStaticAssetPath("/api/media/media_example"), false);
+  assert.equal(isProtectedStaticAssetPath("/coa/reports/example.webp"), true);
 });
 
 test("adds anti-embedding and raw-report indexing headers", () => {

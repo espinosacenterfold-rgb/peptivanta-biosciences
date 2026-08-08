@@ -17,6 +17,14 @@ type IntroState = "hidden" | "visible" | "closing";
 
 const INTRO_SESSION_KEY = "peptivanta-factory-intro-seen";
 
+const customerAccessLabels: Record<Locale, string> = {
+  en: "Customer access",
+  pt: "Acesso do cliente",
+  es: "Acceso de clientes",
+  fr: "Accès client",
+  zh: "客户登录",
+};
+
 const copy = {
   en: {
     nav: ["Products", "Quality", "COA documents", "Private label", "Company", "Recent fulfillment"],
@@ -1066,6 +1074,9 @@ export default function Home() {
               ))}
             </select>
           </label>
+          <Link className="customer-access-link" href="/customer/access">
+            {customerAccessLabels[locale]}
+          </Link>
           <a className="button button-small" href="#inquiry">
             {t.primaryCta}
           </a>
@@ -1364,6 +1375,7 @@ export default function Home() {
       <footer className="footer section-shell">
         <div><Brand /><p>{t.footerNote}</p></div>
         <div className="footer-links">
+          <Link href="/customer/access">{customerAccessLabels[locale]}</Link>
           <Link href="/privacy">{t.footerLinks[0]}</Link>
           <Link href="/terms">{t.footerLinks[1]}</Link>
           <Link href="/compliance">{t.footerLinks[2]}</Link>

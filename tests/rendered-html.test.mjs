@@ -239,6 +239,22 @@ test("does not expose a top-level admin landing page", async () => {
   assert.equal(response.status, 404);
 });
 
+for (const [pathname, expected] of [
+  ["/feedback", /A clearer view of the buying experience/i],
+  ["/customer/access", /Your order feedback, in one light account/i],
+  ["/admin/workspace", /内部管理面板/],
+  ["/admin/feedback", /内部管理面板/],
+  ["/admin/customers", /内部管理面板/],
+  ["/admin/media", /内部管理面板/],
+]) {
+  test(`renders the new ${pathname} surface`, async () => {
+    const response = await render(pathname);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, expected);
+  });
+}
+
 test("renders the expanded illustrative-order workspace", async () => {
   const response = await render("/admin/generator");
   assert.equal(response.status, 200);

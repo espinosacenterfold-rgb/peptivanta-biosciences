@@ -4,6 +4,7 @@ User-agent: *
 Allow: /
 Disallow: /admin/
 Disallow: /api/
+Disallow: /customer/
 Crawl-delay: 8
 
 # Keep search and user-requested assistants useful for customer discovery.

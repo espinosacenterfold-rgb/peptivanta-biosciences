@@ -65,6 +65,9 @@ responseTime: "Within one business day",
 - `app/globals.css` — 字体、颜色、版式和手机端样式
 - `app/ledger.css` — 履约台账的表格、提示和状态样式
 - `app/api/fulfillment-cases/generator.ts` — 每日订单结构、金额和状态推进规则
+- `lib/customer-auth.ts` — 客户账号、恢复码、绑定码、会话与限流规则
+- `lib/feedback-ledger.ts` — 示例反馈生成、180 天保留与素材匹配
+- `app/admin/workspace` — 隐藏的统一后台入口
 - `public/images` — 网站照片素材
 - `app/privacy`、`app/terms`、`app/compliance` — 合规与法律页面
 
@@ -190,6 +193,52 @@ USD/盒（每盒 10 瓶），不包含运费。
 不要直接在后台手填产品价格。需要更新报价时，应同步修改产品对应的 SKU、规格和
 `retailUsdCents`，然后运行 `npm test`，确认后台、模拟订单和报价规则仍然一致。
 折扣使用 basis points（基点）：例如 `500` 表示 5%，`4000` 表示 40%。
+
+## 客户账号、反馈和素材库
+
+本次新增的公开与后台页面：
+
+```text
+/feedback                 公开反馈页
+/customer/access          客户注册、登录和恢复
+/customer/feedback        客户资料、订单绑定与反馈提交
+/admin/workspace          隐藏的统一后台面板
+/admin/feedback           真实/示例反馈管理
+/admin/customers          客户审核与订单绑定码
+/admin/media              授权素材、排期和外部链接辅助
+```
+
+客户密码、恢复码、订单绑定码和会话令牌采用轻量单向 HMAC 摘要，不做可逆加密，
+也绝不保存明文。除现有的 `FULFILLMENT_ADMIN_KEY` 外，正式 Worker 还必须配置独立密钥：
+
+```bash
+npx wrangler secret put CUSTOMER_AUTH_SECRET
+```
+
+请使用至少 32 个随机字符。不要把任一真实密钥写入源码、README、`.env` 提交记录或
+GitHub。客户账号无需邮件验证码；恢复码只在注册或重置成功时显示一次。登录、恢复、
+订单绑定和反馈提交均按 IP 与账号标识限速，登录会话默认 30 天。
+
+反馈分为两种不可混淆的来源：
+
+- `customer_submitted`：真实客户基于已关联且已送达的真实订单提交，必须人工审核；
+- `illustrative`：系统从已完成的模拟履约记录中少量生成，公开页始终显示“示例服务反馈”。
+
+公开反馈和反馈素材最多保留 180 天。系统默认每天只有 35% 概率生成 1 条示例反馈，
+后台可在 0–2 条范围内调整。真实反馈不自动发布，后台审批时会再次阻止医疗、剂量、
+治疗、药效和无依据的绝对纯度表述。
+
+素材图片保存在 R2，D1 只保存元数据。正式 Cloudflare 账号必须创建并绑定：
+
+```text
+绑定名称：MEDIA
+默认桶名：peptivanta-feedback-media
+```
+
+浏览器上传前会把图片缩放为最长边 1280px 的 WebP（质量 0.82），单文件上限 2.5 MB，
+新素材最早从第二天参与示例反馈匹配，到期由每日计划任务清理。TikSave 和 KuKuTool 仅作为
+后台外部辅助入口；系统不会调用未公开的私有下载接口。管理员应在取得商业展示授权后，
+手动上传可合法使用的图片。
 
 ## 网站内容定位
 

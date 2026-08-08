@@ -28,9 +28,14 @@ const BLOCKED_CRAWLER_TOKENS = [
   "petalbot",
 ] as const;
 
-const PROTECTED_ASSET_PREFIXES = [
+const PROTECTED_STATIC_ASSET_PREFIXES = [
   "/coa/reports/",
   "/media/",
+] as const;
+
+const PROTECTED_MEDIA_PREFIXES = [
+  ...PROTECTED_STATIC_ASSET_PREFIXES,
+  "/api/media/",
 ] as const;
 
 export function isKnownTrainingCrawler(request: Request) {
@@ -42,7 +47,18 @@ export function isKnownTrainingCrawler(request: Request) {
 }
 
 export function isProtectedAssetPath(pathname: string) {
-  return PROTECTED_ASSET_PREFIXES.some((prefix) =>
+  return PROTECTED_MEDIA_PREFIXES.some((prefix) =>
+    pathname.startsWith(prefix),
+  );
+}
+
+/**
+ * Only these paths are backed by the static ASSETS binding. Dynamic feedback
+ * media stays on the application router while receiving the same anti-hotlink
+ * and indexing protections.
+ */
+export function isProtectedStaticAssetPath(pathname: string) {
+  return PROTECTED_STATIC_ASSET_PREFIXES.some((prefix) =>
     pathname.startsWith(prefix),
   );
 }
@@ -122,7 +138,9 @@ export function applyAntiScrapingHeaders(
     headers.set("X-Robots-Tag", "noindex, noimageindex, noarchive");
   } else if (
     pathname.startsWith("/admin/") ||
-    pathname.startsWith("/api/admin/")
+    pathname.startsWith("/api/admin/") ||
+    pathname.startsWith("/customer/") ||
+    pathname.startsWith("/api/customer/")
   ) {
     headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   } else if (!headers.has("X-Robots-Tag")) {
