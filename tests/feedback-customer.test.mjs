@@ -65,12 +65,15 @@ test("community storage keeps secrets one-way and public feedback labelled", asy
 });
 
 test("media library uses R2, delayed availability, and safe helper links", async () => {
-  const [hosting, wrangler, mediaRoute, mediaPage, worker] = await Promise.all([
+  const [hosting, wrangler, mediaRoute, mediaPage, worker, storage, schema, migration] = await Promise.all([
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
     readFile(new URL("../app/api/admin/media/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/media/AdminMediaPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/media-storage.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0009_tiresome_the_initiative.sql", import.meta.url), "utf8"),
   ]);
 
   assert.equal(JSON.parse(hosting).r2, "MEDIA");
@@ -83,6 +86,18 @@ test("media library uses R2, delayed availability, and safe helper links", async
   assert.match(mediaRoute, /scheduledDate/);
   assert.match(mediaPage, /image\/webp/);
   assert.match(mediaPage, /0\.82/);
+  assert.match(mediaPage, /10GB 免费额度保护/);
+  assert.match(mediaPage, /保存容量预设/);
+  assert.match(storage, /R2_FREE_STORAGE_BYTES = 10_000_000_000/);
+  assert.match(storage, /DEFAULT_MEDIA_CLEANUP_TARGET_BYTES = 9_500_000_000/);
+  assert.match(storage, /protect_customer_media/);
+  assert.match(storage, /capacity_threshold/);
+  assert.match(mediaRoute, /status = 'uploading'/);
+  assert.match(mediaRoute, /hard_limit_bytes/);
+  assert.match(schema, /mediaStorageSettings/);
+  assert.match(schema, /mediaCleanupEvents/);
+  assert.match(migration, /10000000000/);
+  assert.match(migration, /9500000000/);
   assert.match(worker, /cleanupExpiredMedia/);
   assert.match(worker, /cleanupExpiredCustomerAuth/);
 });

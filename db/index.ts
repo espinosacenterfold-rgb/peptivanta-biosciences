@@ -449,6 +449,27 @@ async function initializeCommunitySchema() {
       )
     `),
     d1.prepare(`
+      CREATE TABLE IF NOT EXISTS media_storage_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1 NOT NULL,
+        hard_limit_bytes INTEGER DEFAULT 10000000000 NOT NULL,
+        cleanup_target_bytes INTEGER DEFAULT 9500000000 NOT NULL,
+        retention_days INTEGER DEFAULT 180 NOT NULL,
+        protect_customer_media INTEGER DEFAULT 1 NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS media_cleanup_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        asset_public_id TEXT DEFAULT '' NOT NULL,
+        source_title TEXT DEFAULT '' NOT NULL,
+        r2_key TEXT DEFAULT '' NOT NULL,
+        size_bytes INTEGER DEFAULT 0 NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
       CREATE TABLE IF NOT EXISTS feedback_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
         public_id TEXT NOT NULL UNIQUE,
@@ -517,6 +538,7 @@ async function initializeCommunitySchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS customer_profile_events_customer_id_idx ON customer_profile_events (customer_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS media_library_assets_status_available_idx ON media_library_assets (status, available_from)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS media_library_assets_expires_at_idx ON media_library_assets (expires_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS media_cleanup_events_created_at_idx ON media_cleanup_events (created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_status_published_idx ON feedback_entries (status, published_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_source_submitted_idx ON feedback_entries (source_type, submitted_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_expires_at_idx ON feedback_entries (expires_at)"),
@@ -526,6 +548,21 @@ async function initializeCommunitySchema() {
         id, generation_enabled, daily_maximum, generation_rate_bps, public_limit
       ) VALUES (1, 1, 1, 3500, 48)
       ON CONFLICT(id) DO NOTHING
+    `),
+    d1.prepare(`
+      INSERT INTO media_storage_settings (
+        id, hard_limit_bytes, cleanup_target_bytes, retention_days,
+        protect_customer_media
+      ) VALUES (1, 10000000000, 9500000000, 180, 1)
+      ON CONFLICT(id) DO NOTHING
+    `),
+    d1.prepare(`
+      DELETE FROM media_cleanup_events
+      WHERE id NOT IN (
+        SELECT id FROM media_cleanup_events
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT 500
+      )
     `),
     d1.prepare("PRAGMA optimize"),
   ]);

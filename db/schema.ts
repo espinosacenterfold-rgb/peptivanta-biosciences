@@ -329,6 +329,50 @@ export const mediaLibraryAssets = sqliteTable(
   ],
 );
 
+/**
+ * Capacity guardrails for the private R2 feedback-media bucket.
+ *
+ * The defaults intentionally use the whole 10 GB Standard-storage free tier,
+ * while the 9.5 GB cleanup target leaves a 0.5 GB safety buffer after a
+ * capacity cleanup. The hard limit is also capped in the API, so an
+ * administrator cannot accidentally configure this site above the free tier.
+ */
+export const mediaStorageSettings = sqliteTable("media_storage_settings", {
+  id: integer("id").primaryKey().default(1),
+  hardLimitBytes: integer("hard_limit_bytes")
+    .notNull()
+    .default(10_000_000_000),
+  cleanupTargetBytes: integer("cleanup_target_bytes")
+    .notNull()
+    .default(9_500_000_000),
+  retentionDays: integer("retention_days").notNull().default(180),
+  protectCustomerMedia: integer("protect_customer_media", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+/**
+ * A small audit trail for automatic, retention, failed-upload, and manual
+ * object removals. It preserves enough information to explain a cleanup
+ * without keeping the deleted image itself.
+ */
+export const mediaCleanupEvents = sqliteTable(
+  "media_cleanup_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    assetPublicId: text("asset_public_id").notNull().default(""),
+    sourceTitle: text("source_title").notNull().default(""),
+    r2Key: text("r2_key").notNull().default(""),
+    sizeBytes: integer("size_bytes").notNull().default(0),
+    reason: text("reason").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("media_cleanup_events_created_at_idx").on(table.createdAt),
+  ],
+);
+
 export const feedbackEntries = sqliteTable(
   "feedback_entries",
   {

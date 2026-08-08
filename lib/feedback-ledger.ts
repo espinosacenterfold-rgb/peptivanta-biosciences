@@ -1,4 +1,4 @@
-import { ensureCommunitySchema, getD1, getMediaStore } from "../db";
+import { ensureCommunitySchema, getD1 } from "../db";
 import { currentFulfillmentStatus } from "../app/api/fulfillment-cases/generator";
 import {
   createIllustrativeFeedback,
@@ -6,6 +6,7 @@ import {
   stableNumber,
 } from "./feedback";
 import { randomToken } from "./customer-auth";
+import { cleanupExpiredAndInterruptedMedia } from "./media-storage";
 
 const RETENTION_DAYS = 180;
 const LAST_GENERATION_KEY = "feedback-v1:last-generated-date";
@@ -220,34 +221,7 @@ async function chooseMediaAsset(
 }
 
 export async function cleanupExpiredMedia() {
-  await ensureCommunitySchema();
-  const d1 = await getD1();
-  const expired = await d1
-    .prepare(
-      `SELECT id, r2_key FROM media_library_assets
-       WHERE status <> 'expired' AND datetime(expires_at) <= CURRENT_TIMESTAMP
-       LIMIT 100`,
-    )
-    .all<{ id: number; r2_key: string }>();
-  if (expired.results.length === 0) return 0;
-  let media: R2Bucket | null = null;
-  try {
-    media = await getMediaStore();
-  } catch {
-    media = null;
-  }
-  for (const row of expired.results) {
-    if (media && row.r2_key) await media.delete(row.r2_key);
-    await d1
-      .prepare(
-        `UPDATE media_library_assets
-         SET status = 'expired', r2_key = '', updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-      )
-      .bind(row.id)
-      .run();
-  }
-  return expired.results.length;
+  return cleanupExpiredAndInterruptedMedia();
 }
 
 export async function publicFeedback(params: {
