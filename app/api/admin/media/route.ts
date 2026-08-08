@@ -14,6 +14,10 @@ import {
   mediaExpiryIso,
   saveMediaStorageSettings,
 } from "../../../../lib/media-storage";
+import {
+  maintainMediaCollectionTasks,
+} from "../../../../lib/media-collection";
+import { normalizeCollectionKeywords } from "../../../../lib/community-rules";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_UPLOAD_BYTES = 2_500_000;
@@ -71,7 +75,7 @@ function validateSourceUrl(input: string, requestedPlatform?: string) {
 
 async function mediaPayload() {
   const d1 = await getD1();
-  const [rows, storage] = await Promise.all([
+  const [rows, storage, collectionSettings, collectionTasks] = await Promise.all([
     d1
       .prepare(
         `SELECT * FROM media_library_assets
@@ -83,11 +87,24 @@ async function mediaPayload() {
       )
       .all(),
     getMediaStorageSnapshot(),
+    d1
+      .prepare("SELECT * FROM media_collection_settings WHERE id = 1")
+      .first(),
+    d1
+      .prepare(
+        `SELECT * FROM media_collection_tasks
+         ORDER BY CASE status WHEN 'pending_review' THEN 0 ELSE 1 END,
+                  datetime(created_at) DESC, id DESC
+         LIMIT 60`,
+      )
+      .all(),
   ]);
   return {
     assets: rows.results,
     retentionDays: storage.settings.retentionDays,
     storage,
+    collectionSettings,
+    collectionTasks: collectionTasks.results,
   };
 }
 
@@ -97,6 +114,7 @@ export async function GET(request: Request) {
   try {
     await ensureCommunitySchema();
     await cleanupExpiredMedia();
+    await maintainMediaCollectionTasks();
     return noStoreJson(await mediaPayload());
   } catch (error) {
     return noStoreJson({ error: error instanceof Error ? error.message : "Unable to load media." }, { status: 500 });
@@ -120,6 +138,11 @@ export async function POST(request: Request) {
         cleanupTargetBytes?: number;
         retentionDays?: number;
         protectCustomerMedia?: boolean;
+        collectionEnabled?: boolean;
+        collectionIntervalDays?: number;
+        collectionKeywords?: string | string[];
+        collectionTaskId?: number;
+        collectionTaskStatus?: string;
       };
       if (body.action === "update_storage_settings") {
         await saveMediaStorageSettings({
@@ -140,6 +163,57 @@ export async function POST(request: Request) {
           cleanup,
           ...(await mediaPayload()),
         });
+      }
+      if (body.action === "update_collection_settings") {
+        const intervalDays = Math.max(
+          1,
+          Math.min(30, Number(body.collectionIntervalDays) || 3),
+        );
+        const keywords = normalizeCollectionKeywords(body.collectionKeywords);
+        const d1 = await getD1();
+        await d1
+          .prepare(
+            `UPDATE media_collection_settings
+             SET enabled = ?, interval_days = ?, keywords_json = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = 1`,
+          )
+          .bind(
+            body.collectionEnabled ? 1 : 0,
+            intervalDays,
+            JSON.stringify(keywords),
+          )
+          .run();
+        if (body.collectionEnabled) await maintainMediaCollectionTasks();
+        return noStoreJson({ ok: true, ...(await mediaPayload()) });
+      }
+      if (body.action === "create_collection_task_now") {
+        const collection = await maintainMediaCollectionTasks(new Date(), {
+          force: true,
+        });
+        return noStoreJson({ ok: true, collection, ...(await mediaPayload()) });
+      }
+      if (body.action === "update_collection_task") {
+        const taskId = Number(body.collectionTaskId);
+        const status = ["completed", "skipped"].includes(
+          body.collectionTaskStatus ?? "",
+        )
+          ? body.collectionTaskStatus
+          : "pending_review";
+        if (!Number.isInteger(taskId) || taskId <= 0) {
+          return noStoreJson({ error: "Invalid collection task." }, { status: 400 });
+        }
+        const d1 = await getD1();
+        await d1
+          .prepare(
+            `UPDATE media_collection_tasks
+             SET status = ?, reviewed_at = CASE
+               WHEN ? = 'pending_review' THEN NULL ELSE CURRENT_TIMESTAMP END
+             WHERE id = ?`,
+          )
+          .bind(status, status, taskId)
+          .run();
+        return noStoreJson({ ok: true, ...(await mediaPayload()) });
       }
       if (body.action !== "import_link") {
         return noStoreJson({ error: "Unsupported action." }, { status: 400 });

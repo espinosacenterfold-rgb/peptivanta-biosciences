@@ -54,10 +54,31 @@ type MediaStorage = {
   cleanupEvents: MediaCleanupEvent[];
 };
 
+type MediaCollectionSettings = {
+  id: number;
+  enabled: number;
+  interval_days: number;
+  keywords_json: string;
+  updated_at: string;
+};
+
+type MediaCollectionTask = {
+  id: number;
+  public_id: string;
+  platform: string;
+  keyword: string;
+  search_url: string;
+  status: string;
+  created_at: string;
+  reviewed_at: string | null;
+};
+
 type MediaPayload = {
   assets: MediaAsset[];
   retentionDays: number;
   storage: MediaStorage;
+  collectionSettings: MediaCollectionSettings;
+  collectionTasks: MediaCollectionTask[];
 };
 
 type ImportResult = {
@@ -201,6 +222,71 @@ export default function AdminMediaPage() {
     }
   }
 
+  async function saveCollectionSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    auth.setBusy(true);
+    auth.setError("");
+    try {
+      setData(
+        await auth.request<MediaPayload>("/api/admin/media", {
+          method: "POST",
+          body: JSON.stringify({
+            action: "update_collection_settings",
+            collectionEnabled: form.get("collectionEnabled") === "true",
+            collectionIntervalDays: Number(form.get("collectionIntervalDays")),
+            collectionKeywords: String(form.get("collectionKeywords") ?? ""),
+          }),
+        }),
+      );
+      setMessage("关键词采集任务设置已保存。系统只生成待处理任务，不会复制或发布第三方内容。");
+    } catch (caught) {
+      auth.setError(caught instanceof Error ? caught.message : "保存失败。");
+    } finally {
+      auth.setBusy(false);
+    }
+  }
+
+  async function createCollectionTaskNow() {
+    auth.setBusy(true);
+    auth.setError("");
+    try {
+      setData(
+        await auth.request<MediaPayload>("/api/admin/media", {
+          method: "POST",
+          body: JSON.stringify({ action: "create_collection_task_now" }),
+        }),
+      );
+      setMessage("已生成一条新的小红书关键词采集任务。");
+    } catch (caught) {
+      auth.setError(caught instanceof Error ? caught.message : "生成任务失败。");
+    } finally {
+      auth.setBusy(false);
+    }
+  }
+
+  async function updateCollectionTask(id: number, status: "completed" | "skipped") {
+    auth.setBusy(true);
+    auth.setError("");
+    try {
+      setData(
+        await auth.request<MediaPayload>("/api/admin/media", {
+          method: "POST",
+          body: JSON.stringify({
+            action: "update_collection_task",
+            collectionTaskId: id,
+            collectionTaskStatus: status,
+          }),
+        }),
+      );
+      setMessage(status === "completed" ? "采集任务已标记为已处理。" : "采集任务已跳过。");
+    } catch (caught) {
+      auth.setError(caught instanceof Error ? caught.message : "更新任务失败。");
+    } finally {
+      auth.setBusy(false);
+    }
+  }
+
   async function importLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -313,6 +399,14 @@ export default function AdminMediaPage() {
 
   const storage = data?.storage;
   const settings = storage?.settings;
+  const collectionSettings = data?.collectionSettings;
+  const collectionKeywords = (() => {
+    try {
+      return (JSON.parse(collectionSettings?.keywords_json ?? "[]") as string[]).join("，");
+    } catch {
+      return "";
+    }
+  })();
 
   return (
     <AdminPage className="admin-media-page">
@@ -460,6 +554,77 @@ export default function AdminMediaPage() {
                 </ul>
               )}
             </details>
+          </section>
+        )}
+
+        {collectionSettings && (
+          <section className="admin-collection-panel">
+            <div className="admin-storage-heading">
+              <div>
+                <p className="section-tag">SOURCE RESEARCH QUEUE</p>
+                <h2>小红书关键词采集任务</h2>
+                <p>
+                  系统按间隔自动轮换关键词并生成搜索任务。它不会抓取、下载或自动发布第三方图文；
+                  只有自有或已获商业展示授权的素材，才能通过下方来源登记与上传进入反馈素材库。
+                </p>
+              </div>
+              <strong>{data?.collectionTasks.filter((task) => task.status === "pending_review").length ?? 0}</strong>
+            </div>
+            <form className="admin-collection-form" onSubmit={saveCollectionSettings}>
+              <label className="admin-checkbox">
+                <input
+                  type="checkbox"
+                  name="collectionEnabled"
+                  value="true"
+                  defaultChecked={Boolean(collectionSettings.enabled)}
+                />
+                <span>启用定期关键词采集任务</span>
+              </label>
+              <label>
+                <span>任务间隔（天）</span>
+                <input
+                  name="collectionIntervalDays"
+                  type="number"
+                  min="1"
+                  max="30"
+                  defaultValue={collectionSettings.interval_days || 3}
+                  required
+                />
+              </label>
+              <label className="admin-collection-keywords">
+                <span>关键词（逗号或换行分隔，最多12个）</span>
+                <textarea
+                  name="collectionKeywords"
+                  rows={3}
+                  defaultValue={collectionKeywords}
+                  required
+                />
+              </label>
+              <div className="admin-storage-actions">
+                <button className="admin-primary" type="submit" disabled={auth.busy}>保存采集规则</button>
+                <button className="admin-secondary" type="button" onClick={() => void createCollectionTaskNow()} disabled={auth.busy}>立即生成任务</button>
+              </div>
+            </form>
+            <div className="admin-collection-tasks">
+              {(data?.collectionTasks ?? []).length === 0 ? (
+                <p>尚无采集任务。保存启用规则后会自动生成首条任务。</p>
+              ) : (
+                data?.collectionTasks.slice(0, 12).map((task) => (
+                  <article key={task.id}>
+                    <div>
+                      <span>{task.status === "pending_review" ? "待处理" : task.status === "completed" ? "已处理" : "已跳过"}</span>
+                      <strong>{task.keyword}</strong>
+                      <time>{new Date(task.created_at).toLocaleString("zh-CN")}</time>
+                    </div>
+                    <div className="admin-feedback-controls">
+                      <a href={task.search_url} target="_blank" rel="noopener noreferrer">打开小红书搜索 ↗</a>
+                      {task.status === "pending_review" && <button type="button" onClick={() => void updateCollectionTask(task.id, "completed")} disabled={auth.busy}>标记已处理</button>}
+                      {task.status === "pending_review" && <button className="admin-delete" type="button" onClick={() => void updateCollectionTask(task.id, "skipped")} disabled={auth.busy}>跳过</button>}
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
           </section>
         )}
 

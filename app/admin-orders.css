@@ -137,6 +137,22 @@
 .admin-cleanup-log li small,
 .admin-cleanup-log li time { color: var(--muted); }
 
+.admin-collection-panel { margin-top: 56px; padding: 26px; border: 1px solid rgba(50,124,255,.18); border-radius: 22px; background: linear-gradient(135deg, rgba(255,255,255,.9), rgba(235,243,255,.8)); box-shadow: 0 20px 50px rgba(28,65,112,.06); }
+.admin-collection-form { margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(50,124,255,.13); display: grid; grid-template-columns: minmax(230px,.8fr) minmax(140px,.35fr) minmax(280px,1.5fr); align-items: start; gap: 12px; }
+.admin-collection-form > label:not(.admin-checkbox) { display: grid; gap: 7px; }
+.admin-collection-form label > span { color: var(--ink); font-size: 9px; font-weight: 760; }
+.admin-collection-form input[type="number"],
+.admin-collection-form textarea { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); font: 700 11px/1.55 var(--font-body); }
+.admin-collection-form textarea { min-height: 78px; padding-block: 10px; resize: vertical; }
+.admin-collection-tasks { margin-top: 20px; display: grid; gap: 8px; }
+.admin-collection-tasks > p { padding: 22px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 10px; text-align: center; }
+.admin-collection-tasks article { padding: 13px 14px; border: 1px solid rgba(8,43,45,.09); border-radius: 12px; background: rgba(255,255,255,.82); display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.admin-collection-tasks article > div:first-child { min-width: 0; display: grid; grid-template-columns: 62px minmax(120px,1fr) 160px; align-items: center; gap: 10px; }
+.admin-collection-tasks article > div:first-child span { color: var(--blue); font-size: 8px; font-weight: 760; }
+.admin-collection-tasks article > div:first-child strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.admin-collection-tasks article time { color: var(--muted); font-size: 8px; }
+.admin-collection-tasks .admin-feedback-controls a { min-height: 40px; padding: 0 12px; border: 1px solid var(--ink); border-radius: 10px; background: var(--ink); color: white; display: inline-flex; align-items: center; font-size: 9px; font-weight: 720; }
+
 .admin-media-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .admin-media-tools .admin-create-panel { margin-top: 56px; }
 .admin-media-tools .admin-create-panel form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -167,6 +183,8 @@
   .admin-media-tools { grid-template-columns: 1fr; }
   .admin-media-tools .admin-create-panel + .admin-create-panel { margin-top: 0; }
   .admin-storage-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .admin-collection-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-collection-keywords { grid-column: 1 / -1; }
 }
 
 .admin-login-page {
@@ -1067,17 +1085,23 @@
   .admin-feedback-settings form,
   .admin-media-tools .admin-create-panel form,
   .admin-storage-form,
+  .admin-collection-form,
   .admin-storage-stats,
   .admin-feedback-list dl,
   .admin-customer-list dl { grid-template-columns: 1fr; }
 
-  .admin-storage-panel { padding: 18px; }
+  .admin-storage-panel,
+  .admin-collection-panel { padding: 18px; }
   .admin-storage-heading { flex-direction: column; gap: 14px; }
   .admin-storage-heading > strong { font-size: 34px; }
   .admin-storage-protect,
   .admin-storage-actions { grid-column: 1; }
   .admin-cleanup-log li { grid-template-columns: 1fr auto; }
   .admin-cleanup-log li time { grid-column: 1 / -1; }
+  .admin-collection-keywords { grid-column: 1; }
+  .admin-collection-tasks article { align-items: stretch; flex-direction: column; }
+  .admin-collection-tasks article > div:first-child { grid-template-columns: 62px 1fr; }
+  .admin-collection-tasks article time { grid-column: 1 / -1; }
 
   .admin-feedback-list article > header,
   .admin-customer-list article > header { flex-direction: column; }

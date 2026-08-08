@@ -62,21 +62,33 @@ export async function PATCH(request: Request) {
       mediaAssetId?: number | null;
       generationEnabled?: boolean;
       dailyMaximum?: number;
-      generationRateBps?: number;
+      generationIntervalDays?: number;
       publicLimit?: number;
     };
     const d1 = await getD1();
+    if (body.action === "generate_now") {
+      const generation = await maintainFeedbackLedger(new Date(), { force: true });
+      return noStoreJson({ ...(await feedbackPayload()), generation });
+    }
     if (body.action === "update_settings") {
       const dailyMaximum = Math.max(0, Math.min(2, Number(body.dailyMaximum) || 0));
-      const rate = Math.max(0, Math.min(10_000, Number(body.generationRateBps) || 0));
+      const intervalDays = Math.max(
+        1,
+        Math.min(30, Number(body.generationIntervalDays) || 3),
+      );
       const publicLimit = Math.max(6, Math.min(100, Number(body.publicLimit) || 48));
       await d1
         .prepare(
           `UPDATE feedback_generator_settings SET generation_enabled = ?,
-             daily_maximum = ?, generation_rate_bps = ?, public_limit = ?,
+             daily_maximum = ?, generation_interval_days = ?, public_limit = ?,
              updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
         )
-        .bind(body.generationEnabled ? 1 : 0, dailyMaximum, rate, publicLimit)
+        .bind(
+          body.generationEnabled ? 1 : 0,
+          dailyMaximum,
+          intervalDays,
+          publicLimit,
+        )
         .run();
       return noStoreJson(await feedbackPayload());
     }

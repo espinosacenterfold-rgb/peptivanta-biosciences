@@ -7,9 +7,10 @@ import {
 } from "./feedback";
 import { randomToken } from "./customer-auth";
 import { cleanupExpiredAndInterruptedMedia } from "./media-storage";
+import { feedbackGenerationDue } from "./community-rules";
 
 const RETENTION_DAYS = 180;
-const LAST_GENERATION_KEY = "feedback-v1:last-generated-date";
+const LAST_SUCCESS_KEY = "feedback-v2:last-successful-date";
 
 function addDays(date: Date, days: number) {
   const result = new Date(date);
@@ -29,7 +30,10 @@ function safeJson<T>(value: string, fallback: T): T {
   }
 }
 
-export async function maintainFeedbackLedger(now = new Date()) {
+export async function maintainFeedbackLedger(
+  now = new Date(),
+  options: { force?: boolean } = {},
+) {
   await ensureCommunitySchema();
   const d1 = await getD1();
   await d1
@@ -39,28 +43,34 @@ export async function maintainFeedbackLedger(now = new Date()) {
   const today = isoDate(now);
   const last = await d1
     .prepare("SELECT value FROM feedback_generator_meta WHERE key = ?")
-    .bind(LAST_GENERATION_KEY)
+    .bind(LAST_SUCCESS_KEY)
     .first<{ value: string }>();
-  if (last?.value === today) return;
 
   const settings = await d1
     .prepare(
-      `SELECT generation_enabled, daily_maximum, generation_rate_bps
+      `SELECT generation_enabled, daily_maximum, generation_interval_days
        FROM feedback_generator_settings WHERE id = 1`,
     )
     .first<{
       generation_enabled: number;
       daily_maximum: number;
-      generation_rate_bps: number;
+      generation_interval_days: number;
     }>();
 
+  const intervalDays = Math.max(
+    1,
+    Math.min(30, Number(settings?.generation_interval_days ?? 3)),
+  );
+  const due = feedbackGenerationDue(last?.value ?? null, today, intervalDays);
   const shouldGenerate =
-    Boolean(settings?.generation_enabled ?? 1) &&
-    stableNumber(`feedback-day:${today}`) % 10_000 <
-      Number(settings?.generation_rate_bps ?? 3500);
+    Boolean(options.force) ||
+    (Boolean(settings?.generation_enabled ?? 1) && due);
   const generationCount = shouldGenerate
-    ? Math.max(0, Math.min(2, Number(settings?.daily_maximum ?? 1)))
+    ? options.force
+      ? 1
+      : Math.max(0, Math.min(2, Number(settings?.daily_maximum ?? 1)))
     : 0;
+  let insertedCount = 0;
 
   if (generationCount > 0) {
     const candidates = await d1
@@ -160,7 +170,9 @@ export async function maintainFeedbackLedger(now = new Date()) {
           expiresAt,
         );
       const inserted = await insert.run();
-      if (mediaId && Number(inserted.meta.changes ?? 0) > 0) {
+      const changed = Number(inserted.meta.changes ?? 0);
+      insertedCount += changed;
+      if (mediaId && changed > 0) {
         await d1
           .prepare(
             `UPDATE media_library_assets
@@ -175,15 +187,25 @@ export async function maintainFeedbackLedger(now = new Date()) {
     }
   }
 
-  await d1
-    .prepare(
-      `INSERT INTO feedback_generator_meta (key, value, updated_at)
-       VALUES (?, ?, CURRENT_TIMESTAMP)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value,
-         updated_at = CURRENT_TIMESTAMP`,
-    )
-    .bind(LAST_GENERATION_KEY, today)
-    .run();
+  // Record only a successful insertion. An empty candidate pool is retried on
+  // the next scheduled run instead of silently postponing feedback for days.
+  if (insertedCount > 0) {
+    await d1
+      .prepare(
+        `INSERT INTO feedback_generator_meta (key, value, updated_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+           updated_at = CURRENT_TIMESTAMP`,
+      )
+      .bind(LAST_SUCCESS_KEY, today)
+      .run();
+  }
+  return {
+    created: insertedCount,
+    due,
+    intervalDays,
+    lastSuccessfulDate: insertedCount > 0 ? today : last?.value ?? null,
+  };
 }
 
 async function chooseMediaAsset(

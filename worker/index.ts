@@ -6,6 +6,7 @@ import {
   maintainFeedbackLedger,
 } from "../lib/feedback-ledger";
 import { cleanupExpiredCustomerAuth } from "../lib/customer-auth";
+import { maintainMediaCollectionTasks } from "../lib/media-collection";
 import {
   applyAntiScrapingHeaders,
   crawlerBlockedResponse,
@@ -93,6 +94,7 @@ const worker = {
     ctx.waitUntil(
       Promise.all([
         maintainFeedbackLedger(),
+        maintainMediaCollectionTasks(),
         cleanupExpiredMedia(),
         cleanupExpiredCustomerAuth(),
       ]).then(() => undefined),

@@ -29,6 +29,45 @@
 
 .customer-simple-header > div { display: flex; align-items: center; gap: 18px; }
 
+.customer-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+}
+
+.customer-language-switcher {
+  min-height: 38px;
+  padding: 0 6px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.customer-language-switcher > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.customer-language-switcher select {
+  min-height: 30px;
+  padding: 0 24px 0 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 760;
+}
+
 .customer-access-shell {
   width: var(--shell);
   margin: 0 auto;
@@ -130,6 +169,10 @@
 @media (max-width: 620px) {
   .customer-simple-header { min-height: 78px; }
   .customer-simple-header .brand small { display: none; }
+  .customer-simple-header > div { gap: 9px; }
+  .customer-language-switcher { padding-left: 8px; }
+  .customer-language-switcher > span { display: none; }
+  .customer-simple-header > div > a { display: none; }
   .customer-access-shell { padding-block: 65px 80px; }
   .customer-access-intro h1,
   .customer-portal-heading h1 { font-size: clamp(50px, 15vw, 72px); }

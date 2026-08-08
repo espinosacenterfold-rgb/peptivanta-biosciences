@@ -153,6 +153,13 @@ const generatorSettingAddedColumns = [
   },
 ] as const;
 
+const feedbackGeneratorSettingAddedColumns = [
+  {
+    name: "generation_interval_days",
+    sql: "ALTER TABLE feedback_generator_settings ADD COLUMN generation_interval_days INTEGER DEFAULT 3 NOT NULL",
+  },
+] as const;
+
 let fulfillmentSchemaPromise: Promise<void> | null = null;
 let communitySchemaPromise: Promise<void> | null = null;
 
@@ -470,6 +477,27 @@ async function initializeCommunitySchema() {
       )
     `),
     d1.prepare(`
+      CREATE TABLE IF NOT EXISTS media_collection_settings (
+        id INTEGER PRIMARY KEY DEFAULT 1 NOT NULL,
+        enabled INTEGER DEFAULT 1 NOT NULL,
+        interval_days INTEGER DEFAULT 3 NOT NULL,
+        keywords_json TEXT DEFAULT '["多肽包装","实验室产品包装","外贸发货包装","COA检测报告"]' NOT NULL,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS media_collection_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        public_id TEXT NOT NULL UNIQUE,
+        platform TEXT DEFAULT 'xiaohongshu' NOT NULL,
+        keyword TEXT NOT NULL,
+        search_url TEXT NOT NULL,
+        status TEXT DEFAULT 'pending_review' NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        reviewed_at TEXT
+      )
+    `),
+    d1.prepare(`
       CREATE TABLE IF NOT EXISTS feedback_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
         public_id TEXT NOT NULL UNIQUE,
@@ -515,6 +543,7 @@ async function initializeCommunitySchema() {
         generation_enabled INTEGER DEFAULT 1 NOT NULL,
         daily_maximum INTEGER DEFAULT 1 NOT NULL,
         generation_rate_bps INTEGER DEFAULT 3500 NOT NULL,
+        generation_interval_days INTEGER DEFAULT 3 NOT NULL,
         public_limit INTEGER DEFAULT 48 NOT NULL,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
       )
@@ -528,6 +557,21 @@ async function initializeCommunitySchema() {
     `),
   ]);
 
+  // Existing production databases predate the interval-based feedback cadence.
+  // Keep the runtime initializer additive so a normal Worker deployment can
+  // upgrade the one settings table without replacing any stored feedback.
+  const feedbackSettingsInfo = await d1
+    .prepare("PRAGMA table_info(feedback_generator_settings)")
+    .all<{ name: string }>();
+  const feedbackSettingsColumns = new Set(
+    feedbackSettingsInfo.results.map((column) => column.name),
+  );
+  for (const column of feedbackGeneratorSettingAddedColumns) {
+    if (!feedbackSettingsColumns.has(column.name)) {
+      await d1.prepare(column.sql).run();
+    }
+  }
+
   await d1.batch([
     d1.prepare("CREATE INDEX IF NOT EXISTS customers_status_idx ON customers (status)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS customer_sessions_customer_id_idx ON customer_sessions (customer_id)"),
@@ -539,15 +583,34 @@ async function initializeCommunitySchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS media_library_assets_status_available_idx ON media_library_assets (status, available_from)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS media_library_assets_expires_at_idx ON media_library_assets (expires_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS media_cleanup_events_created_at_idx ON media_cleanup_events (created_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS media_collection_tasks_status_created_idx ON media_collection_tasks (status, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_status_published_idx ON feedback_entries (status, published_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_source_submitted_idx ON feedback_entries (source_type, submitted_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS feedback_entries_expires_at_idx ON feedback_entries (expires_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS feedback_actions_feedback_id_idx ON feedback_moderation_actions (feedback_id)"),
     d1.prepare(`
       INSERT INTO feedback_generator_settings (
-        id, generation_enabled, daily_maximum, generation_rate_bps, public_limit
-      ) VALUES (1, 1, 1, 3500, 48)
+        id, generation_enabled, daily_maximum, generation_rate_bps,
+        generation_interval_days, public_limit
+      ) VALUES (1, 1, 1, 3500, 3, 48)
       ON CONFLICT(id) DO NOTHING
+    `),
+    d1.prepare(`
+      INSERT INTO media_collection_settings (
+        id, enabled, interval_days, keywords_json
+      ) VALUES (
+        1, 1, 3,
+        '["多肽包装","实验室产品包装","外贸发货包装","COA检测报告"]'
+      )
+      ON CONFLICT(id) DO NOTHING
+    `),
+    d1.prepare(`
+      DELETE FROM media_collection_tasks
+      WHERE id NOT IN (
+        SELECT id FROM media_collection_tasks
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT 180
+      )
     `),
     d1.prepare(`
       INSERT INTO media_storage_settings (

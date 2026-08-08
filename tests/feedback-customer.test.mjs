@@ -6,6 +6,11 @@ import {
   createIllustrativeFeedback,
   feedbackRiskFlags,
 } from "../lib/feedback.ts";
+import {
+  feedbackGenerationDue,
+  normalizeCollectionKeywords,
+  xiaohongshuSearchUrl,
+} from "../lib/community-rules.ts";
 
 test("illustrative feedback is stable, multilingual, and service-only", () => {
   const context = {
@@ -31,6 +36,38 @@ test("feedback moderation detects medical and unsupported purity claims", () => 
   assert.ok(feedbackRiskFlags("This cured a disease after injection.").includes("medical_or_effect_claim"));
   assert.ok(feedbackRiskFlags("Guaranteed purity is 100%.").includes("unsupported_purity_claim"));
   assert.ok(feedbackRiskFlags("治疗效果很好，建议注射。 ").includes("medical_or_effect_claim"));
+});
+
+test("illustrative feedback uses a stable three-day cadence", () => {
+  assert.equal(feedbackGenerationDue(null, "2026-08-09", 3), true);
+  assert.equal(feedbackGenerationDue("2026-08-07", "2026-08-09", 3), false);
+  assert.equal(feedbackGenerationDue("2026-08-06", "2026-08-09", 3), true);
+  assert.equal(feedbackGenerationDue("invalid", "2026-08-09", 3), true);
+});
+
+test("Xiaohongshu collection creates research links without copying posts", () => {
+  assert.deepEqual(normalizeCollectionKeywords("多肽包装，实验室包装\n多肽包装"), [
+    "多肽包装",
+    "实验室包装",
+  ]);
+  const url = new URL(xiaohongshuSearchUrl("外贸 发货"));
+  assert.equal(url.hostname, "www.xiaohongshu.com");
+  assert.equal(url.searchParams.get("keyword"), "外贸 发货");
+});
+
+test("customer access and feedback workspace expose all five site languages", async () => {
+  const [access, portal] = await Promise.all([
+    readFile(new URL("../app/customer/access/CustomerAccessPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/customer/feedback/CustomerFeedbackPage.tsx", import.meta.url), "utf8"),
+  ]);
+  for (const source of [access, portal]) {
+    assert.match(source, /LANGUAGE_OPTIONS/);
+    assert.match(source, /LOCALE_STORAGE_KEY/);
+    assert.match(source, /customer-language-switcher/);
+  }
+  assert.match(access, /Your order feedback/);
+  assert.match(access, /用一个轻量账号管理订单反馈/);
+  assert.match(portal, /Vincule pedidos entregues/);
 });
 
 test("community storage keeps secrets one-way and public feedback labelled", async () => {
@@ -65,15 +102,17 @@ test("community storage keeps secrets one-way and public feedback labelled", asy
 });
 
 test("media library uses R2, delayed availability, and safe helper links", async () => {
-  const [hosting, wrangler, mediaRoute, mediaPage, worker, storage, schema, migration] = await Promise.all([
+  const [hosting, wrangler, mediaRoute, mediaPage, worker, storage, collection, schema, migration, collectionMigration] = await Promise.all([
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
     readFile(new URL("../app/api/admin/media/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/media/AdminMediaPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/media-storage.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/media-collection.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0009_tiresome_the_initiative.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0010_outstanding_tyrannus.sql", import.meta.url), "utf8"),
   ]);
 
   assert.equal(JSON.parse(hosting).r2, "MEDIA");
@@ -102,4 +141,8 @@ test("media library uses R2, delayed availability, and safe helper links", async
   assert.match(migration, /9500000000/);
   assert.match(worker, /cleanupExpiredMedia/);
   assert.match(worker, /cleanupExpiredCustomerAuth/);
+  assert.match(worker, /maintainMediaCollectionTasks/);
+  assert.match(collection, /does not fetch, parse, download, or republish/i);
+  assert.match(collectionMigration, /media_collection_tasks/);
+  assert.match(collectionMigration, /generation_interval_days/);
 });

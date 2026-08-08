@@ -373,6 +373,45 @@ export const mediaCleanupEvents = sqliteTable(
   ],
 );
 
+/**
+ * A scheduled research queue for the media administrator. It creates only a
+ * Xiaohongshu keyword/search task: no third-party post is copied, downloaded,
+ * or published automatically. A selected source still has to pass the normal
+ * ownership/authorization confirmation before its file can enter R2.
+ */
+export const mediaCollectionSettings = sqliteTable(
+  "media_collection_settings",
+  {
+    id: integer("id").primaryKey().default(1),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    intervalDays: integer("interval_days").notNull().default(3),
+    keywordsJson: text("keywords_json")
+      .notNull()
+      .default('["多肽包装","实验室产品包装","外贸发货包装","COA检测报告"]'),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+);
+
+export const mediaCollectionTasks = sqliteTable(
+  "media_collection_tasks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    publicId: text("public_id").notNull().unique(),
+    platform: text("platform").notNull().default("xiaohongshu"),
+    keyword: text("keyword").notNull(),
+    searchUrl: text("search_url").notNull(),
+    status: text("status").notNull().default("pending_review"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    reviewedAt: text("reviewed_at"),
+  },
+  (table) => [
+    index("media_collection_tasks_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+  ],
+);
+
 export const feedbackEntries = sqliteTable(
   "feedback_entries",
   {
@@ -455,6 +494,9 @@ export const feedbackGeneratorSettings = sqliteTable(
       .default(true),
     dailyMaximum: integer("daily_maximum").notNull().default(1),
     generationRateBps: integer("generation_rate_bps").notNull().default(3500),
+    generationIntervalDays: integer("generation_interval_days")
+      .notNull()
+      .default(3),
     publicLimit: integer("public_limit").notNull().default(48),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
