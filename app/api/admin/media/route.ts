@@ -318,17 +318,23 @@ export async function POST(request: Request) {
         .bind(publicId)
         .run();
     } catch (uploadError) {
+      let r2Removed = false;
       try {
         await media.delete(r2Key);
+        r2Removed = true;
       } catch {
-        // The scheduled stale-upload cleanup is a second recovery layer.
+        // Keep the uploading reservation when R2 deletion is unavailable.
+        // The scheduled stale-upload cleanup can then find the exact key,
+        // retry deletion, and the byte counter continues to include it.
       }
-      await d1
-        .prepare(
-          "DELETE FROM media_library_assets WHERE public_id = ? AND status = 'uploading'",
-        )
-        .bind(publicId)
-        .run();
+      if (r2Removed) {
+        await d1
+          .prepare(
+            "DELETE FROM media_library_assets WHERE public_id = ? AND status = 'uploading'",
+          )
+          .bind(publicId)
+          .run();
+      }
       throw uploadError;
     }
     return noStoreJson({ ok: true, publicId, ...(await mediaPayload()) });

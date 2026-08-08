@@ -94,6 +94,8 @@ test("media library uses R2, delayed availability, and safe helper links", async
   assert.match(storage, /capacity_threshold/);
   assert.match(mediaRoute, /status = 'uploading'/);
   assert.match(mediaRoute, /hard_limit_bytes/);
+  assert.match(mediaRoute, /let r2Removed = false/);
+  assert.match(mediaRoute, /if \(r2Removed\)/);
   assert.match(schema, /mediaStorageSettings/);
   assert.match(schema, /mediaCleanupEvents/);
   assert.match(migration, /10000000000/);
