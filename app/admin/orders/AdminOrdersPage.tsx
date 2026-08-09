@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
+import { downloadAdminCsv } from "../_components/admin-export";
 import {
   PRODUCT_CATALOG,
   PRODUCT_CATEGORY_LABELS,
@@ -135,6 +136,13 @@ export default function AdminOrdersPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [marketFilter, setMarketFilter] = useState("all");
+  const [visibilityFilter, setVisibilityFilter] = useState("all");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<Status>("confirmed");
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(SESSION_KEY);
@@ -160,6 +168,29 @@ export default function AdminOrdersPage() {
   const publishedCount = useMemo(
     () => orders.filter((order) => Boolean(order.isPublished)).length,
     [orders],
+  );
+  const filteredOrders = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return orders.filter((order) => {
+      const searchable = [
+        order.reference,
+        order.destination,
+        order.orderProfile,
+        ...order.items.flatMap((item) => [item.productName, item.specification, item.sku]),
+      ].join(" ").toLocaleLowerCase();
+      return (
+        (!needle || searchable.includes(needle)) &&
+        (statusFilter === "all" || order.status === statusFilter) &&
+        (serviceFilter === "all" || order.service === serviceFilter) &&
+        (marketFilter === "all" || order.destination === marketFilter) &&
+        (visibilityFilter === "all" ||
+          (visibilityFilter === "published" ? Boolean(order.isPublished) : !order.isPublished))
+      );
+    });
+  }, [marketFilter, orders, query, serviceFilter, statusFilter, visibilityFilter]);
+  const filteredAmount = useMemo(
+    () => filteredOrders.reduce((sum, order) => sum + order.amountUsdCents, 0),
+    [filteredOrders],
   );
   const selectedDraftProducts = useMemo(
     () =>
@@ -349,6 +380,59 @@ export default function AdminOrdersPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleSelected(id: number) {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  }
+
+  function selectVisible() {
+    const visibleIds = filteredOrders.map((order) => order.id);
+    const everyVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    setSelectedIds((current) =>
+      everyVisibleSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...current, ...visibleIds])),
+    );
+  }
+
+  async function updateSelected(action: "bulk_visibility" | "bulk_status", value: boolean | Status) {
+    if (!selectedIds.length) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await adminRequest("PATCH", {
+        action,
+        ids: selectedIds,
+        ...(action === "bulk_visibility" ? { isPublished: value } : { status: value }),
+      });
+      setMessage(`已更新 ${selectedIds.length} 条订单。`);
+      setSelectedIds([]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "批量更新失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function exportOrders() {
+    downloadAdminCsv(`peptivanta-orders-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ["订单编号", "日期", "国家", "服务", "产品组合", "总盒数", "金额USD", "履约阶段", "公开状态"],
+      ...filteredOrders.map((order) => [
+        order.reference,
+        order.occurredAt,
+        markets.find((item) => item.value === order.destination)?.label ?? order.destination,
+        services.find((item) => item.value === order.service)?.label ?? order.service,
+        order.items.map((item) => `${item.productName} ${item.specification} × ${item.quantityUnits}`).join(" | "),
+        order.quantityUnits,
+        (order.amountUsdCents / 100).toFixed(2),
+        statuses.find((item) => item.value === order.status)?.label ?? order.status,
+        order.isPublished ? "公开" : "后台保留",
+      ]),
+    ]);
   }
 
   function signOut() {
@@ -634,19 +718,53 @@ export default function AdminOrdersPage() {
               <p className="section-tag">MANUAL RECORDS</p>
               <h2>已登记真实订单</h2>
             </div>
-            <button type="button" onClick={() => void adminRequest("GET")} disabled={busy}>
-              刷新列表
-            </button>
+            <div className="admin-heading-actions">
+              <button type="button" onClick={exportOrders} disabled={!filteredOrders.length}>导出当前结果</button>
+              <button type="button" onClick={() => void adminRequest("GET")} disabled={busy}>刷新列表</button>
+            </div>
           </div>
 
-          {orders.length === 0 ? (
-            <p className="admin-empty">暂时没有真实订单。</p>
+          <div className="admin-data-toolbar">
+            <label className="admin-search-control">
+              <span>搜索</span>
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="订单号、产品、规格或 SKU" />
+            </label>
+            <label><span>履约阶段</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">全部阶段</option>{statuses.map((status) => <option value={status.value} key={status.value}>{status.label}</option>)}</select></label>
+            <label><span>服务类型</span><select value={serviceFilter} onChange={(event) => setServiceFilter(event.target.value)}><option value="all">全部服务</option>{services.map((service) => <option value={service.value} key={service.value}>{service.label}</option>)}</select></label>
+            <label><span>目的国家</span><select value={marketFilter} onChange={(event) => setMarketFilter(event.target.value)}><option value="all">全部市场</option>{markets.map((market) => <option value={market.value} key={market.value}>{market.label}</option>)}</select></label>
+            <label><span>公开状态</span><select value={visibilityFilter} onChange={(event) => setVisibilityFilter(event.target.value)}><option value="all">全部状态</option><option value="published">公开展示</option><option value="hidden">后台保留</option></select></label>
+          </div>
+
+          <div className="admin-result-summary">
+            <button type="button" onClick={selectVisible} disabled={!filteredOrders.length}>
+              {filteredOrders.length > 0 && filteredOrders.every((order) => selectedIds.includes(order.id)) ? "取消选择当前结果" : "选择当前结果"}
+            </button>
+            <p>显示 <b>{filteredOrders.length}</b> / {orders.length} 条 · 合计 <strong>{usdFormatter.format(filteredAmount / 100)}</strong></p>
+            {(query || statusFilter !== "all" || serviceFilter !== "all" || marketFilter !== "all" || visibilityFilter !== "all") && (
+              <button type="button" onClick={() => { setQuery(""); setStatusFilter("all"); setServiceFilter("all"); setMarketFilter("all"); setVisibilityFilter("all"); }}>清除筛选</button>
+            )}
+          </div>
+
+          {selectedIds.length > 0 && (
+            <div className="admin-bulk-bar">
+              <strong>已选择 {selectedIds.length} 条</strong>
+              <select value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value as Status)}>{statuses.map((status) => <option value={status.value} key={status.value}>{status.label}</option>)}</select>
+              <button type="button" onClick={() => void updateSelected("bulk_status", bulkStatus)} disabled={busy}>批量更新阶段</button>
+              <button type="button" onClick={() => void updateSelected("bulk_visibility", true)} disabled={busy}>批量公开</button>
+              <button type="button" onClick={() => void updateSelected("bulk_visibility", false)} disabled={busy}>批量隐藏</button>
+              <button type="button" onClick={() => setSelectedIds([])}>取消选择</button>
+            </div>
+          )}
+
+          {filteredOrders.length === 0 ? (
+            <p className="admin-empty">没有符合当前条件的真实订单。</p>
           ) : (
             <div className="admin-order-cards">
-              {orders.map((order) => (
-                <article key={order.id}>
+              {filteredOrders.map((order) => (
+                <article className={selectedIds.includes(order.id) ? "is-selected" : ""} key={order.id}>
                   <header>
                     <div>
+                      <label className="admin-card-select"><input type="checkbox" checked={selectedIds.includes(order.id)} onChange={() => toggleSelected(order.id)} /><span>选择订单</span></label>
                       <code>{order.reference}</code>
                       <h3>
                         {order.items.length > 1

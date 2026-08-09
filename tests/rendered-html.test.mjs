@@ -219,6 +219,9 @@ test("renders the deeper unified fulfillment administration entry", async () => 
   assert.match(adminPage, /AdminHeader/);
   assert.match(adminPage, /window\.confirm/);
   assert.match(adminPage, /删除订单/);
+  assert.match(adminPage, /bulk_visibility/);
+  assert.match(adminPage, /批量更新阶段/);
+  assert.match(adminPage, /downloadAdminCsv/);
   assert.match(adminRoute, /manual_fulfillment_orders/);
   assert.doesNotMatch(adminRoute, /fulfillmentCases/);
   assert.match(adminRoute, /findCatalogVariant/);
@@ -227,6 +230,8 @@ test("renders the deeper unified fulfillment administration entry", async () => 
   assert.match(adminRoute, /export async function DELETE/);
   assert.match(adminRoute, /DELETE FROM manual_fulfillment_orders WHERE id = \?/);
   assert.match(adminRoute, /ORDER BY occurred_at DESC, created_at DESC, id DESC/);
+  assert.match(adminRoute, /bulk_status/);
+  assert.match(adminRoute, /WHERE id IN/);
   assert.match(auth, /FULFILLMENT_ADMIN_KEY/);
   assert.match(auth, /Bearer/);
   assert.equal((catalogue.match(/\{ sku:/g) ?? []).length, 96);
@@ -280,6 +285,9 @@ test("renders the expanded illustrative-order workspace", async () => {
   assert.match(page, /同步今日记录并刷新统计/);
   assert.match(page, /AdminHeader/);
   assert.match(page, /admin-settings-disclosure/);
+  assert.match(page, /一键业务方案/);
+  assert.match(page, /暂停每日生成/);
+  assert.match(page, /B2B 拓展/);
   assert.match(page, /\/api\/admin\/generator/);
   assert.match(route, /fulfillment_generator_settings/);
   assert.match(route, /multi_product_rate_bps/);
@@ -287,10 +295,12 @@ test("renders the expanded illustrative-order workspace", async () => {
   assert.doesNotMatch(route, /manual_fulfillment_orders/);
 });
 
-test("uses one simplified admin hub with shared navigation and folded advanced settings", async () => {
-  const [chrome, workspace, feedback, media] = await Promise.all([
+test("uses one detailed admin hub with shared navigation and focused management tools", async () => {
+  const [chrome, workspace, dashboard, customers, feedback, media] = await Promise.all([
     readFile(new URL("../app/admin/_components/AdminChrome.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/workspace/AdminWorkspacePage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/dashboard/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/customers/AdminCustomersPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/feedback/AdminFeedbackPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/media/AdminMediaPage.tsx", import.meta.url), "utf8"),
   ]);
@@ -301,9 +311,18 @@ test("uses one simplified admin hub with shared navigation and folded advanced s
   assert.match(workspace, /常用操作/);
   assert.match(workspace, /当前待办/);
   assert.match(workspace, /全部功能/);
+  assert.match(workspace, /真实订单管线/);
+  assert.match(workspace, /市场分布/);
+  assert.match(workspace, /近期动态/);
+  assert.match(dashboard, /real_order_value_usd_cents/);
+  assert.match(dashboard, /UNION ALL/);
+  assert.match(customers, /搜索客户/);
+  assert.match(customers, /导出当前结果/);
   assert.match(feedback, /admin-settings-disclosure/);
+  assert.match(feedback, /搜索反馈/);
   assert.match(media, /R2 容量保护/);
   assert.match(media, /admin-inline-disclosure/);
+  assert.match(media, /搜索素材/);
 });
 
 test("renders the dedicated multilingual analytical report library", async () => {

@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AdminHeader,
   AdminLogin,
   AdminPage,
 } from "../_components/AdminChrome";
 import { useAdminSession } from "../_components/useAdminSession";
+import { downloadAdminCsv } from "../_components/admin-export";
 
 type MediaAsset = {
   id: number;
@@ -149,9 +150,31 @@ export default function AdminMediaPage() {
   const [data, setData] = useState<MediaPayload | null>(null);
   const [message, setMessage] = useState("");
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [assetQuery, setAssetQuery] = useState("");
+  const [assetStatus, setAssetStatus] = useState("all");
+  const [assetPlatform, setAssetPlatform] = useState("all");
   const [tomorrow] = useState(() =>
     new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
   );
+
+  const visibleAssets = useMemo(() => {
+    const needle = assetQuery.trim().toLocaleLowerCase();
+    return (data?.assets ?? []).filter((asset) => {
+      const searchable = [asset.public_id, asset.source_title, asset.source_author, asset.tags_json].join(" ").toLocaleLowerCase();
+      return (
+        (!needle || searchable.includes(needle)) &&
+        (assetStatus === "all" || asset.status === assetStatus) &&
+        (assetPlatform === "all" || asset.source_platform === assetPlatform)
+      );
+    });
+  }, [assetPlatform, assetQuery, assetStatus, data?.assets]);
+
+  function exportAssets() {
+    downloadAdminCsv(`peptivanta-media-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ["素材编号", "标题", "平台", "状态", "文件大小", "尺寸", "使用次数", "可用日期", "到期日期", "来源链接"],
+      ...visibleAssets.map((asset) => [asset.public_id, asset.source_title, asset.source_platform, asset.status, asset.size_bytes, `${asset.width}x${asset.height}`, asset.use_count, asset.available_from, asset.expires_at, asset.source_url]),
+    ]);
+  }
 
   async function load() {
     setData(await auth.request<MediaPayload>("/api/admin/media"));
@@ -686,9 +709,16 @@ export default function AdminMediaPage() {
         <section className="admin-order-list">
           <div className="admin-list-heading">
             <div><p className="section-tag">ASSET QUEUE</p><h2>素材记录</h2></div>
+            <div className="admin-heading-actions"><button type="button" onClick={exportAssets} disabled={!visibleAssets.length}>导出当前结果</button><button type="button" onClick={() => void load()} disabled={auth.busy}>刷新</button></div>
           </div>
+          <div className="admin-data-toolbar admin-media-toolbar">
+            <label className="admin-search-control"><span>搜索素材</span><input value={assetQuery} onChange={(event) => setAssetQuery(event.target.value)} placeholder="标题、标签、作者或素材编号" /></label>
+            <label><span>素材状态</span><select value={assetStatus} onChange={(event) => setAssetStatus(event.target.value)}><option value="all">全部状态</option><option value="approved">可用</option><option value="scheduled">排期</option><option value="pending">待处理</option><option value="source_only">仅来源链接</option><option value="uploading">上传中</option><option value="rejected">停用</option></select></label>
+            <label><span>来源平台</span><select value={assetPlatform} onChange={(event) => setAssetPlatform(event.target.value)}><option value="all">全部平台</option><option value="manual">手动素材</option><option value="tiktok">TikTok</option><option value="xiaohongshu">小红书</option></select></label>
+          </div>
+          <div className="admin-result-summary"><p>显示 <b>{visibleAssets.length}</b> / {data?.assets.length ?? 0} 条素材</p>{(assetQuery || assetStatus !== "all" || assetPlatform !== "all") && <button type="button" onClick={() => { setAssetQuery(""); setAssetStatus("all"); setAssetPlatform("all"); }}>清除筛选</button>}</div>
           <div className="admin-media-grid">
-            {data?.assets.map((asset) => (
+            {visibleAssets.map((asset) => (
               <article key={asset.id}>
                 {asset.r2_key && asset.status !== "uploading" ? (
                   <img src={`/api/media/${asset.public_id}`} alt={asset.source_title} loading="lazy" />
@@ -714,6 +744,7 @@ export default function AdminMediaPage() {
                 </form>
               </article>
             ))}
+            {!visibleAssets.length && <p className="admin-empty">没有符合当前条件的素材。</p>}
           </div>
         </section>
       </section>

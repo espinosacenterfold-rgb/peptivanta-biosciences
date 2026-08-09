@@ -37,6 +37,8 @@ type ManualOrderItemInput = {
 };
 
 type ManualOrderInput = {
+  action?: unknown;
+  ids?: unknown;
   id?: unknown;
   reference?: unknown;
   occurredAt?: unknown;
@@ -485,11 +487,55 @@ export async function PATCH(request: Request) {
 
   try {
     await ensureFulfillmentSchema();
-    const order = validateInput(
-      (await request.json()) as ManualOrderInput,
-      true,
-    );
+    const body = (await request.json()) as ManualOrderInput;
     const d1 = await getD1();
+
+    if (body.action === "bulk_visibility" || body.action === "bulk_status") {
+      const ids = Array.isArray(body.ids)
+        ? Array.from(new Set(body.ids.map(Number))).filter(
+            (id) => Number.isSafeInteger(id) && id > 0,
+          )
+        : [];
+      if (ids.length < 1 || ids.length > 200) {
+        return Response.json(
+          { error: "Select between 1 and 200 orders." },
+          { status: 400, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      const placeholders = ids.map(() => "?").join(", ");
+      if (body.action === "bulk_visibility") {
+        await d1
+          .prepare(
+            `UPDATE manual_fulfillment_orders
+             SET is_published = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id IN (${placeholders})`,
+          )
+          .bind(body.isPublished === false ? 0 : 1, ...ids)
+          .run();
+      } else {
+        const status = typeof body.status === "string" ? body.status : "";
+        if (!statuses.has(status)) {
+          return Response.json(
+            { error: "Status is invalid." },
+            { status: 400, headers: { "Cache-Control": "no-store" } },
+          );
+        }
+        await d1
+          .prepare(
+            `UPDATE manual_fulfillment_orders
+             SET status = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id IN (${placeholders})`,
+          )
+          .bind(status, ...ids)
+          .run();
+      }
+      return Response.json(
+        { ok: true, orders: await readOrders() },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    const order = validateInput(body, true);
     const results = await d1.batch([
       d1
         .prepare(

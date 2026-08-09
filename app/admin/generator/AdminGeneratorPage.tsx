@@ -69,6 +69,24 @@ const defaults: Settings = {
   generationEnabled: true,
 };
 
+const presets: Array<{ name: string; description: string; settings: Partial<Settings> }> = [
+  {
+    name: "稳健增长",
+    description: "小单为主，适合日常展示",
+    settings: { dailyMinimum: 10, dailyMaximum: 22, largeOrderRateBps: 1200, repeatOrderRateBps: 3200, multiProductRateBps: 4500, bulkGapDays: 24 },
+  },
+  {
+    name: "B2B 拓展",
+    description: "提高组合单、复购与适量大单",
+    settings: { dailyMinimum: 15, dailyMaximum: 30, largeOrderRateBps: 1800, repeatOrderRateBps: 4200, multiProductRateBps: 6000, bulkGapDays: 18 },
+  },
+  {
+    name: "目录优先",
+    description: "更多标准产品和首单，节奏更轻",
+    settings: { dailyMinimum: 10, dailyMaximum: 20, largeOrderRateBps: 800, repeatOrderRateBps: 2500, multiProductRateBps: 3500, bulkGapDays: 30 },
+  },
+];
+
 export default function AdminGeneratorPage() {
   const [adminKey, setAdminKey] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -161,13 +179,12 @@ export default function AdminGeneratorPage() {
     }
   }
 
-  async function save(event: FormEvent) {
-    event.preventDefault();
+  async function persistSettings(nextSettings: Settings, successMessage: string) {
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      await request("PATCH", settings);
+      await request("PATCH", nextSettings);
       // Capacity changes append only missing history; previously generated
       // references, dates, amounts and product assemblies remain unchanged.
       const response = await fetch("/api/fulfillment-cases", {
@@ -175,14 +192,29 @@ export default function AdminGeneratorPage() {
       });
       if (!response.ok) throw new Error("设置已保存，但订单同步失败。");
       const refreshed = await request("GET");
-      setMessage(
-        `生成设置已保存。当前保留 ${refreshed.stats?.total ?? 0} 条模拟记录。`,
-      );
+      setMessage(`${successMessage} 当前保留 ${refreshed.stats?.total ?? 0} 条模拟记录。`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败。");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    await persistSettings(settings, "生成设置已保存。");
+  }
+
+  async function toggleGenerator() {
+    const next = { ...settings, generationEnabled: !settings.generationEnabled };
+    setSettings(next);
+    await persistSettings(next, next.generationEnabled ? "每日生成已恢复。" : "每日生成已暂停。");
+  }
+
+  async function applyPreset(name: string, presetSettings: Partial<Settings>) {
+    const next = { ...settings, ...presetSettings, generationEnabled: true };
+    setSettings(next);
+    await persistSettings(next, `已应用“${name}”方案。`);
   }
 
   function signOut() {
@@ -248,6 +280,36 @@ export default function AdminGeneratorPage() {
             {error || message}
           </div>
         )}
+
+        <section className="admin-generator-overview">
+          <div className="admin-generator-status-card">
+            <header>
+              <div><p className="section-tag">AUTOMATION</p><h2>自动生成状态</h2></div>
+              <span className={settings.generationEnabled ? "is-running" : "is-paused"}>{settings.generationEnabled ? "运行中" : "已暂停"}</span>
+            </header>
+            <dl>
+              <div><dt>每日新增</dt><dd>{settings.dailyMinimum}–{settings.dailyMaximum} 条</dd></div>
+              <div><dt>复购目标</dt><dd>{settings.repeatOrderRateBps / 100}%</dd></div>
+              <div><dt>贴牌与大货</dt><dd>{settings.largeOrderRateBps / 100}%</dd></div>
+              <div><dt>多产品组合</dt><dd>{settings.multiProductRateBps / 100}%</dd></div>
+            </dl>
+            <div className="admin-generator-quick-actions">
+              <button className={settings.generationEnabled ? "is-pause" : "is-start"} type="button" onClick={() => void toggleGenerator()} disabled={busy}>{settings.generationEnabled ? "暂停每日生成" : "恢复每日生成"}</button>
+              <button type="button" onClick={() => void synchronizeLedger()} disabled={busy}>立即同步一次</button>
+            </div>
+          </div>
+
+          <div className="admin-generator-presets">
+            <header><div><p className="section-tag">PRESETS</p><h2>一键业务方案</h2></div><small>只影响之后的新记录</small></header>
+            <div>
+              {presets.map((preset) => (
+                <button type="button" key={preset.name} onClick={() => void applyPreset(preset.name, preset.settings)} disabled={busy}>
+                  <b>{preset.name}</b><small>{preset.description}</small><span>应用并保存 →</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
 
         <details className="admin-create-panel admin-generator-controls admin-settings-disclosure">
           <summary>

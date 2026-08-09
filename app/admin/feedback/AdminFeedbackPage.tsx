@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
+import { downloadAdminCsv } from "../_components/admin-export";
 import { useAdminSession } from "../_components/useAdminSession";
 
 type FeedbackRow = {
@@ -43,6 +44,8 @@ export default function AdminFeedbackPage() {
   const [data, setData] = useState<FeedbackPayload | null>(null);
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [query, setQuery] = useState("");
   async function load() {
     const result = await auth.request<FeedbackPayload>("/api/admin/feedback");
     setData(result);
@@ -76,7 +79,24 @@ export default function AdminFeedbackPage() {
     } catch (caught) { auth.setError(caught instanceof Error ? caught.message : "生成失败。"); }
     finally { auth.setBusy(false); }
   }
-  const visible = useMemo(() => (data?.feedback ?? []).filter((row) => filter === "all" || row.status === filter || row.source_type === filter), [data, filter]);
+  const visible = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return (data?.feedback ?? []).filter((row) => {
+      const searchable = [row.manual_reference, row.public_id, row.username, row.company_name, row.country_code, row.service, displayText(row)].join(" ").toLocaleLowerCase();
+      return (
+        (filter === "all" || row.status === filter) &&
+        (sourceFilter === "all" || row.source_type === sourceFilter) &&
+        (!needle || searchable.includes(needle))
+      );
+    });
+  }, [data, filter, query, sourceFilter]);
+
+  function exportFeedback() {
+    downloadAdminCsv(`peptivanta-feedback-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ["反馈编号", "订单编号", "来源", "国家", "服务", "客户", "状态", "公开文案", "提交时间", "到期时间"],
+      ...visible.map((row) => [row.public_id, row.manual_reference, row.source_type === "illustrative" ? "示例服务反馈" : "真实客户提交", row.country_code, row.service, row.username || row.company_name || "模拟订单", row.status, displayText(row), row.submitted_at, row.expires_at]),
+    ]);
+  }
   if (!auth.authenticated) return <AdminLogin {...auth} />;
   return (
     <AdminPage className="admin-feedback-page">
@@ -124,15 +144,14 @@ export default function AdminFeedbackPage() {
         <section className="admin-order-list">
           <div className="admin-list-heading">
             <div><p className="section-tag">REVIEW QUEUE</p><h2>反馈记录</h2></div>
-            <select value={filter} onChange={(event) => setFilter(event.target.value)}>
-              <option value="all">全部</option>
-              <option value="pending_review">待审核</option>
-              <option value="approved">已公开</option>
-              <option value="illustrative">示例反馈</option>
-              <option value="customer_submitted">真实反馈</option>
-              <option value="unpublished">已撤下</option>
-            </select>
+            <div className="admin-heading-actions"><button type="button" onClick={exportFeedback} disabled={!visible.length}>导出当前结果</button></div>
           </div>
+          <div className="admin-data-toolbar admin-feedback-toolbar">
+            <label className="admin-search-control"><span>搜索反馈</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="订单号、客户、国家或反馈内容" /></label>
+            <label><span>审核状态</span><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">全部状态</option><option value="pending_review">待审核</option><option value="approved">已公开</option><option value="unpublished">已撤下</option><option value="rejected">已拒绝</option></select></label>
+            <label><span>反馈来源</span><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="all">全部来源</option><option value="customer_submitted">真实客户提交</option><option value="illustrative">示例服务反馈</option></select></label>
+          </div>
+          <div className="admin-result-summary"><p>显示 <b>{visible.length}</b> / {data?.feedback.length ?? 0} 条反馈</p>{(query || filter !== "all" || sourceFilter !== "all") && <button type="button" onClick={() => { setQuery(""); setFilter("all"); setSourceFilter("all"); }}>清除筛选</button>}</div>
           <div className="admin-feedback-list">
             {visible.map((row) => (
               <article key={row.id}>
@@ -162,6 +181,7 @@ export default function AdminFeedbackPage() {
                 </div>
               </article>
             ))}
+            {!visible.length && <p className="admin-empty">没有符合当前条件的反馈。</p>}
           </div>
         </section>
       </section>
