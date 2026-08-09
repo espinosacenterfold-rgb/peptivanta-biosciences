@@ -444,7 +444,16 @@ export default function AdminMediaPage() {
         )}
 
         {storage && settings && (
-          <section className="admin-storage-panel">
+          <details className="admin-storage-panel admin-settings-disclosure">
+            <summary>
+              <div>
+                <p className="section-tag">R2 CAPACITY GUARD</p>
+                <h2>R2 容量保护</h2>
+                <p>当前使用 {formatBytes(storage.usedBytes)}，系统会按预设自动清理。</p>
+              </div>
+              <span>高级设置</span>
+            </summary>
+            <div className="admin-settings-body">
             <div className="admin-storage-heading">
               <div>
                 <p className="section-tag">R2 CAPACITY GUARD</p>
@@ -554,7 +563,8 @@ export default function AdminMediaPage() {
                 </ul>
               )}
             </details>
-          </section>
+            </div>
+          </details>
         )}
 
         {collectionSettings && (
@@ -570,7 +580,9 @@ export default function AdminMediaPage() {
               </div>
               <strong>{data?.collectionTasks.filter((task) => task.status === "pending_review").length ?? 0}</strong>
             </div>
-            <form className="admin-collection-form" onSubmit={saveCollectionSettings}>
+            <details className="admin-inline-disclosure">
+              <summary>采集频率与关键词设置</summary>
+              <form className="admin-collection-form" onSubmit={saveCollectionSettings}>
               <label className="admin-checkbox">
                 <input
                   type="checkbox"
@@ -604,7 +616,8 @@ export default function AdminMediaPage() {
                 <button className="admin-primary" type="submit" disabled={auth.busy}>保存采集规则</button>
                 <button className="admin-secondary" type="button" onClick={() => void createCollectionTaskNow()} disabled={auth.busy}>立即生成任务</button>
               </div>
-            </form>
+              </form>
+            </details>
             <div className="admin-collection-tasks">
               {(data?.collectionTasks ?? []).length === 0 ? (
                 <p>尚无采集任务。保存启用规则后会自动生成首条任务。</p>

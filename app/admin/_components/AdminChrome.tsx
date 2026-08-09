@@ -4,6 +4,15 @@ import Link from "next/link";
 import type { FormEvent, ReactNode } from "react";
 import { siteConfig } from "../../../site.config";
 
+const adminNavigation = [
+  { current: "workspace", href: "/admin/workspace", label: "总览", short: "总" },
+  { current: "真实订单", href: "/admin/orders", label: "真实订单", short: "单" },
+  { current: "模拟订单", href: "/admin/generator", label: "模拟订单", short: "模" },
+  { current: "反馈审核", href: "/admin/feedback", label: "反馈审核", short: "评" },
+  { current: "客户账号", href: "/admin/customers", label: "客户账号", short: "客" },
+  { current: "素材库", href: "/admin/media", label: "素材库", short: "材" },
+] as const;
+
 export function AdminLogin({
   adminKey,
   setAdminKey,
@@ -34,12 +43,24 @@ export function AdminLogin({
 export function AdminHeader({ current, signOut }: { current: string; signOut: () => void }) {
   return (
     <header className="admin-orders-header">
-      <Link className="admin-brand" href="/admin/workspace"><img src="/logo-mark.svg" alt="" width={44} height={44} /><span><strong>{siteConfig.brandName}</strong><small>Operations Console</small></span></Link>
+      <Link className="admin-brand" href="/admin/workspace"><img src="/logo-mark.svg" alt="" width={42} height={42} /><span><strong>{siteConfig.brandName}</strong><small>管理中心</small></span></Link>
       <nav className="admin-console-tabs" aria-label="后台功能切换">
-        <Link href="/admin/workspace" aria-current={current === "workspace" ? "page" : undefined}>控制台</Link>
-        {current !== "workspace" && <span className="admin-current-module">{current}</span>}
-        <Link href="/fulfillment" target="_blank">查看公开页</Link>
-        <button type="button" onClick={signOut}>退出后台</button>
+        <div className="admin-nav-primary">
+          {adminNavigation.map((item) => (
+            <Link
+              href={item.href}
+              key={item.href}
+              aria-current={current === item.current ? "page" : undefined}
+            >
+              <span aria-hidden="true">{item.short}</span>
+              <b>{item.label}</b>
+            </Link>
+          ))}
+        </div>
+        <div className="admin-nav-secondary">
+          <Link href="/fulfillment" target="_blank">查看网站 <span aria-hidden="true">↗</span></Link>
+          <button type="button" onClick={signOut}>退出</button>
+        </div>
       </nav>
     </header>
   );

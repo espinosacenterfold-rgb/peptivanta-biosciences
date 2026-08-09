@@ -194,8 +194,8 @@ test("renders the deeper unified fulfillment administration entry", async () => 
   const response = await render("/admin/orders");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /统一履约后台/);
-  assert.match(html, /真实订单和模拟订单之间切换/);
+  assert.match(html, /内部管理面板/);
+  assert.match(html, /统一管理密钥/);
   assert.match(html, /name="robots" content="noindex, nofollow, nocache"/i);
 
   const [adminPage, adminRoute, auth, catalogue, pricing] = await Promise.all([
@@ -216,7 +216,7 @@ test("renders the deeper unified fulfillment administration entry", async () => 
   assert.doesNotMatch(adminPage, /运费（USD/);
   assert.doesNotMatch(adminPage, /贴牌\/包装\/检测费/);
   assert.doesNotMatch(adminPage, /serviceFeeUsd/);
-  assert.match(adminPage, /href="\/admin\/generator"/);
+  assert.match(adminPage, /AdminHeader/);
   assert.match(adminPage, /window\.confirm/);
   assert.match(adminPage, /删除订单/);
   assert.match(adminRoute, /manual_fulfillment_orders/);
@@ -259,8 +259,8 @@ test("renders the expanded illustrative-order workspace", async () => {
   const response = await render("/admin/generator");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /统一履约后台/);
-  assert.match(html, /真实订单和模拟订单之间切换/);
+  assert.match(html, /内部管理面板/);
+  assert.match(html, /统一管理密钥/);
 
   const [page, route] = await Promise.all([
     readFile(
@@ -278,12 +278,32 @@ test("renders the expanded illustrative-order workspace", async () => {
   assert.match(page, /目标市场权重/);
   assert.match(page, /大宗订单最短间隔/);
   assert.match(page, /同步今日记录并刷新统计/);
-  assert.match(page, /href="\/admin\/orders"/);
+  assert.match(page, /AdminHeader/);
+  assert.match(page, /admin-settings-disclosure/);
   assert.match(page, /\/api\/admin\/generator/);
   assert.match(route, /fulfillment_generator_settings/);
   assert.match(route, /multi_product_rate_bps/);
   assert.match(route, /market_us_weight/);
   assert.doesNotMatch(route, /manual_fulfillment_orders/);
+});
+
+test("uses one simplified admin hub with shared navigation and folded advanced settings", async () => {
+  const [chrome, workspace, feedback, media] = await Promise.all([
+    readFile(new URL("../app/admin/_components/AdminChrome.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/workspace/AdminWorkspacePage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/feedback/AdminFeedbackPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/media/AdminMediaPage.tsx", import.meta.url), "utf8"),
+  ]);
+
+  for (const href of ["/admin/workspace", "/admin/orders", "/admin/generator", "/admin/feedback", "/admin/customers", "/admin/media"]) {
+    assert.match(chrome, new RegExp(href.replaceAll("/", "\\/")));
+  }
+  assert.match(workspace, /常用操作/);
+  assert.match(workspace, /当前待办/);
+  assert.match(workspace, /全部功能/);
+  assert.match(feedback, /admin-settings-disclosure/);
+  assert.match(media, /R2 容量保护/);
+  assert.match(media, /admin-inline-disclosure/);
 });
 
 test("renders the dedicated multilingual analytical report library", async () => {

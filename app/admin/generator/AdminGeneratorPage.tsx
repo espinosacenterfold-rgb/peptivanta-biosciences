@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { siteConfig } from "../../../site.config";
+import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
 
 type Settings = {
   displayLimit: number;
@@ -205,41 +204,7 @@ export default function AdminGeneratorPage() {
     marketWeightTotal > 0 ? `${((weight / marketWeightTotal) * 100).toFixed(0)}%` : "0%";
 
   if (!authenticated) {
-    return (
-      <main className="admin-login-page">
-        <section className="admin-login-card">
-          <div className="admin-brand">
-            <img src="/logo-mark.svg" alt="" width={48} height={48} />
-            <span>
-              <strong>{siteConfig.brandName}</strong>
-              <small>Unified Fulfillment Admin</small>
-            </span>
-          </div>
-          <p className="section-tag">PRIVATE CONSOLE</p>
-          <h1>统一履约后台</h1>
-          <p>
-            登录一次即可在真实订单和模拟订单之间切换。两类数据分别保存，互不覆盖。
-          </p>
-          <form onSubmit={signIn}>
-            <label>
-              <span>统一管理密钥</span>
-              <input
-                type="password"
-                value={adminKey}
-                onChange={(event) => setAdminKey(event.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </label>
-            {error && <p className="admin-error">{error}</p>}
-            <button type="submit" disabled={busy || !adminKey.trim()}>
-              {busy ? "正在验证…" : "进入统一后台"}
-            </button>
-          </form>
-          <Link href="/fulfillment">返回近期履约页面</Link>
-        </section>
-      </main>
-    );
+    return <AdminLogin adminKey={adminKey} setAdminKey={setAdminKey} busy={busy} error={error} signIn={signIn} />;
   }
 
   const stats = payload.stats;
@@ -260,23 +225,8 @@ export default function AdminGeneratorPage() {
   ] as const;
 
   return (
-    <main className="admin-orders-page admin-generator-page">
-      <header className="admin-orders-header">
-        <div className="admin-brand">
-          <img src="/logo-mark.svg" alt="" width={44} height={44} />
-          <span>
-            <strong>{siteConfig.brandName}</strong>
-            <small>Unified Fulfillment Admin</small>
-          </span>
-        </div>
-        <nav className="admin-console-tabs" aria-label="后台功能切换">
-          <Link href="/admin/workspace">控制台</Link>
-          <Link href="/admin/orders">真实订单</Link>
-          <Link href="/admin/generator" aria-current="page">模拟订单</Link>
-          <Link href="/fulfillment" target="_blank">查看公开页</Link>
-          <button type="button" onClick={signOut}>退出后台</button>
-        </nav>
-      </header>
+    <AdminPage className="admin-generator-page">
+      <AdminHeader current="模拟订单" signOut={signOut} />
 
       <section className="admin-orders-shell">
         <div className="admin-orders-intro">
@@ -299,12 +249,17 @@ export default function AdminGeneratorPage() {
           </div>
         )}
 
-        <section className="admin-create-panel admin-generator-controls">
-          <div>
-            <p className="section-tag">GENERATION SETTINGS</p>
-            <h2>生成与展示参数</h2>
-          </div>
-          <form onSubmit={save}>
+        <details className="admin-create-panel admin-generator-controls admin-settings-disclosure">
+          <summary>
+            <div>
+              <p className="section-tag">GENERATION SETTINGS</p>
+              <h2>生成规则</h2>
+              <p>每日新增、订单结构和市场权重均已按当前设置自动运行。</p>
+            </div>
+            <span>高级设置</span>
+          </summary>
+          <div className="admin-settings-body">
+            <form onSubmit={save}>
             <fieldset className="admin-generator-group">
               <legend>展示与每日新增</legend>
               <label>
@@ -460,8 +415,9 @@ export default function AdminGeneratorPage() {
                 同步今日记录并刷新统计
               </button>
             </div>
-          </form>
-        </section>
+            </form>
+          </div>
+        </details>
 
         <section className="admin-order-list admin-generator-stats">
           <div className="admin-list-heading">
@@ -509,6 +465,6 @@ export default function AdminGeneratorPage() {
           </p>
         </section>
       </section>
-    </main>
+    </AdminPage>
   );
 }

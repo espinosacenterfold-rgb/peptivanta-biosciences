@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
 import {
   PRODUCT_CATALOG,
   PRODUCT_CATEGORY_LABELS,
@@ -10,7 +10,6 @@ import {
   calculateMultiItemOrderPricing,
   orderProfileForQuantity,
 } from "../../../lib/order-pricing.ts";
-import { siteConfig } from "../../../site.config";
 
 type Market = "United States" | "Canada" | "Brazil" | "Mexico";
 type Service = "catalogue" | "private_label" | "bulk" | "custom";
@@ -360,61 +359,12 @@ export default function AdminOrdersPage() {
   }
 
   if (!authenticated) {
-    return (
-      <main className="admin-login-page">
-        <section className="admin-login-card">
-          <div className="admin-brand">
-            <img src="/logo-mark.svg" alt="" width={48} height={48} />
-            <span>
-              <strong>{siteConfig.brandName}</strong>
-              <small>Unified Fulfillment Admin</small>
-            </span>
-          </div>
-          <p className="section-tag">PRIVATE CONSOLE</p>
-          <h1>统一履约后台</h1>
-          <p>
-            登录一次即可在真实订单和模拟订单之间切换。两类数据分别保存，互不覆盖。
-          </p>
-          <form onSubmit={signIn}>
-            <label>
-              <span>统一管理密钥</span>
-              <input
-                type="password"
-                value={adminKey}
-                onChange={(event) => setAdminKey(event.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </label>
-            {error && <p className="admin-error">{error}</p>}
-            <button type="submit" disabled={busy || !adminKey.trim()}>
-              {busy ? "正在验证…" : "进入统一后台"}
-            </button>
-          </form>
-          <Link href="/fulfillment">返回近期履约页面</Link>
-        </section>
-      </main>
-    );
+    return <AdminLogin adminKey={adminKey} setAdminKey={setAdminKey} busy={busy} error={error} signIn={signIn} />;
   }
 
   return (
-    <main className="admin-orders-page">
-      <header className="admin-orders-header">
-        <div className="admin-brand">
-          <img src="/logo-mark.svg" alt="" width={44} height={44} />
-          <span>
-            <strong>{siteConfig.brandName}</strong>
-            <small>Unified Fulfillment Admin</small>
-          </span>
-        </div>
-        <nav className="admin-console-tabs" aria-label="后台功能切换">
-          <Link href="/admin/workspace">控制台</Link>
-          <Link href="/admin/orders" aria-current="page">真实订单</Link>
-          <Link href="/admin/generator">模拟订单</Link>
-          <Link href="/fulfillment" target="_blank">查看公开页</Link>
-          <button type="button" onClick={signOut}>退出后台</button>
-        </nav>
-      </header>
+    <AdminPage>
+      <AdminHeader current="真实订单" signOut={signOut} />
 
       <section className="admin-orders-shell">
         <div className="admin-orders-intro">
@@ -805,6 +755,6 @@ export default function AdminOrdersPage() {
           )}
         </section>
       </section>
-    </main>
+    </AdminPage>
   );
 }
