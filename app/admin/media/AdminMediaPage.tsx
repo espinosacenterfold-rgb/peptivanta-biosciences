@@ -86,13 +86,16 @@ type MediaPayload = {
 
 type ImportResult = {
   helperUrl: string;
-  import?: {
-    imported: Array<{ publicId: string; title: string }>;
-    skipped: string[];
-    failed: Array<{ url: string; message: string }>;
-    requestedCount: number;
+  extraction: {
+    imageUrls: string[];
+    inspection: {
+      title: string;
+      author: string;
+    } | null;
   };
-} & MediaPayload;
+  downloadedCount?: number;
+  failed?: Array<{ url: string; message: string }>;
+};
 
 const DECIMAL_GB = 1_000_000_000;
 
@@ -312,9 +315,34 @@ export default function AdminMediaPage() {
     }
   }
 
-  async function importLink(event: FormEvent<HTMLFormElement>) {
+  async function deleteCollectionTask(id: number) {
+    if (!window.confirm("确定删除这条关键词任务吗？")) return;
+    auth.setBusy(true);
+    auth.setError("");
+    try {
+      setData(
+        await auth.request<MediaPayload>("/api/admin/media", {
+          method: "DELETE",
+          body: JSON.stringify({
+            action: "delete_collection_task",
+            collectionTaskId: id,
+          }),
+        }),
+      );
+      setMessage("关键词任务已删除。");
+    } catch (caught) {
+      auth.setError(caught instanceof Error ? caught.message : "删除任务失败。");
+    } finally {
+      auth.setBusy(false);
+    }
+  }
+
+  async function downloadExternalMedia(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const platform = String(form.get("platform") ?? "xiaohongshu");
+    const sourceUrl = String(form.get("sourceUrl") ?? "");
+    const rightsConfirmed = form.get("rightsConfirmed") === "true";
     auth.setBusy(true);
     auth.setError("");
     setImportResult(null);
@@ -322,26 +350,59 @@ export default function AdminMediaPage() {
       const result = await auth.request<ImportResult>("/api/admin/media", {
         method: "POST",
         body: JSON.stringify({
-          action: "import_remote_media",
-          platform: form.get("platform"),
-          sourceUrl: form.get("sourceUrl"),
-          sourceTitle: form.get("sourceTitle"),
+          action: "extract_remote_media",
+          platform,
+          sourceUrl,
           imageUrls: form.get("imageUrls"),
-          tags: form.get("tags"),
-          availableFrom: form.get("availableFrom"),
-          rightsConfirmed: form.get("rightsConfirmed") === "true",
+          rightsConfirmed,
         }),
       });
-      setImportResult(result);
-      setData(result);
+      let downloadedCount = 0;
+      const failed: Array<{ url: string; message: string }> = [];
+      for (const [index, imageUrl] of result.extraction.imageUrls.entries()) {
+        const response = await fetch("/api/admin/media", {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            Authorization: `Bearer ${auth.adminKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "download_remote_image",
+            platform,
+            sourceUrl,
+            imageUrl,
+            imageIndex: index + 1,
+            rightsConfirmed,
+          }),
+        });
+        if (!response.ok) {
+          const error = (await response.json().catch(() => ({}))) as { error?: string };
+          failed.push({ url: imageUrl, message: error.error ?? "下载失败。" });
+          continue;
+        }
+        const blob = await response.blob();
+        const disposition = response.headers.get("content-disposition") ?? "";
+        const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `media-${index + 1}.jpg`;
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = filename;
+        anchor.hidden = true;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+        downloadedCount += 1;
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+      setImportResult({ ...result, downloadedCount, failed });
       setMessage(
-        `已保存 ${result.import?.imported.length ?? 0} 张图片到素材库` +
-          (result.import?.skipped.length
-            ? `，跳过 ${result.import.skipped.length} 张重复素材。`
-            : "。"),
+        `已提取 ${result.extraction.imageUrls.length} 张，向本地下载 ${downloadedCount} 张` +
+          (failed.length ? `，失败 ${failed.length} 张。` : "。"),
       );
     } catch (caught) {
-      auth.setError(caught instanceof Error ? caught.message : "链接处理失败。");
+      auth.setError(caught instanceof Error ? caught.message : "提取或下载失败。");
     } finally {
       auth.setBusy(false);
     }
@@ -472,7 +533,7 @@ export default function AdminMediaPage() {
   })();
   const collectionSchedule = (() => {
     if (!collectionSettings?.enabled) {
-      return { label: "自动任务已暂停", next: "保存启用后恢复每日检查" };
+      return { label: "定时生成已暂停", next: "保存启用后恢复每日检查" };
     }
     const latest = (data?.collectionTasks ?? []).reduce<string | null>(
       (value, task) =>
@@ -480,14 +541,14 @@ export default function AdminMediaPage() {
       null,
     );
     if (!latest) {
-      return { label: "自动任务已启用", next: "下一次 Cloudflare 定时检查时建立首条任务" };
+      return { label: "定时生成已启用", next: "下一次 Cloudflare 定时检查时建立首条任务" };
     }
     const next = new Date(latest);
     next.setUTCDate(
       next.getUTCDate() + Math.max(1, collectionSettings.interval_days || 3),
     );
     return {
-      label: "自动任务运行中",
+      label: "定时生成运行中",
       next: `下次预计 ${next.toLocaleDateString("zh-CN")} 检查并轮换关键词`,
     };
   })();
@@ -656,10 +717,10 @@ export default function AdminMediaPage() {
             <div className="admin-storage-heading">
               <div>
                 <p className="section-tag">SOURCE RESEARCH QUEUE</p>
-                <h2>小红书关键词采集任务</h2>
+                <h2>小红书关键词任务清单</h2>
                 <p>
-                  Cloudflare 每天自动检查，到达间隔后轮换关键词并建立下一条任务。
-                  选定自有或已获授权的内容后，可在下方直接读取预览，或粘贴解析器给出的图片链接批量进入素材库。
+                  这里只定时生成关键词搜索清单，不会自动抓取小红书内容。
+                  打开搜索并选定内容后，可使用下方工具把解析到的图片下载到当前电脑。
                 </p>
               </div>
               <div className="admin-collection-status">
@@ -678,7 +739,7 @@ export default function AdminMediaPage() {
                   value="true"
                   defaultChecked={Boolean(collectionSettings.enabled)}
                 />
-                <span>启用定期关键词采集任务</span>
+                <span>启用定时生成关键词任务</span>
               </label>
               <label>
                 <span>任务间隔（天）</span>
@@ -721,6 +782,7 @@ export default function AdminMediaPage() {
                       <a href={task.search_url} target="_blank" rel="noopener noreferrer">打开小红书搜索 ↗</a>
                       {task.status === "pending_review" && <button type="button" onClick={() => void updateCollectionTask(task.id, "completed")} disabled={auth.busy}>标记已处理</button>}
                       {task.status === "pending_review" && <button className="admin-delete" type="button" onClick={() => void updateCollectionTask(task.id, "skipped")} disabled={auth.busy}>跳过</button>}
+                      <button className="admin-delete" type="button" onClick={() => void deleteCollectionTask(task.id)} disabled={auth.busy}>删除任务</button>
                     </div>
                   </article>
                 ))
@@ -750,33 +812,34 @@ export default function AdminMediaPage() {
           <section className="admin-create-panel admin-remote-import-panel">
             <div>
               <p className="section-tag">LINK ASSISTANT</p>
-              <h2>外链提取并保存</h2>
+              <h2>外链提取并保存到本地</h2>
               <p>
                 先尝试读取 TikTok 或小红书的公开预览；如平台限制读取，可在 KuKuTool/TikSave 解析后，
-                把“复制图片链接”的内容粘贴进来，系统会校验、去重并保存到 R2。
+                把“复制图片链接”的内容粘贴进来。图片只下载到当前电脑，不写入 R2 素材库。
               </p>
             </div>
-            <form onSubmit={importLink}>
+            <form onSubmit={downloadExternalMedia}>
               <label><span>平台</span><select name="platform" value={importPlatform} onChange={(event) => setImportPlatform(event.target.value)}><option value="tiktok">TikTok</option><option value="xiaohongshu">小红书</option></select></label>
               <label><span>原始内容链接</span><input name="sourceUrl" type="url" value={importSourceUrl} onChange={(event) => setImportSourceUrl(event.target.value)} required /></label>
-              <label><span>素材标题（可选）</span><input name="sourceTitle" maxLength={180} placeholder="例如：发货包装实拍" /></label>
-              <label><span>匹配标签</span><input name="tags" placeholder="packaging,catalogue,tirzepatide,US" /></label>
-              <label><span>开始使用日期</span><input name="availableFrom" type="date" min={tomorrow} defaultValue={tomorrow} required /></label>
               <label className="admin-remote-image-links"><span>解析器图片地址（可选，每行一个，最多18张）</span><textarea name="imageUrls" rows={5} placeholder="留空会尝试读取原始页面预览；也可粘贴 KuKuTool 的“复制全部图片链接”结果。" /></label>
-              <label className="admin-checkbox admin-remote-rights"><input type="checkbox" name="rightsConfirmed" value="true" required /><span>我确认这些图片为自有素材，或已获得商业展示授权</span></label>
+              <label className="admin-checkbox admin-remote-rights"><input type="checkbox" name="rightsConfirmed" value="true" required /><span>我确认有权下载和使用这些图片</span></label>
               <div className="admin-storage-actions">
-                <button className="admin-primary" type="submit" disabled={auth.busy}>提取并保存到素材库</button>
+                <button className="admin-primary" type="submit" disabled={auth.busy}>提取并下载到电脑</button>
                 <button className="admin-secondary" type="button" onClick={openParser}>复制原链接并打开解析器</button>
               </div>
             </form>
             {importResult && (
               <div className="admin-import-result">
-                <strong>本次已入库 {importResult.import?.imported.length ?? 0} 张</strong>
+                <strong>已提取 {importResult.extraction.imageUrls.length} 张，已下载 {importResult.downloadedCount ?? 0} 张</strong>
                 <p>
-                  请求 {importResult.import?.requestedCount ?? 0} 张 · 跳过重复 {importResult.import?.skipped.length ?? 0} 张 ·
-                  失败 {importResult.import?.failed.length ?? 0} 张
+                  文件只保存到当前电脑；浏览器首次批量下载时可能会询问是否允许多个文件。
                 </p>
-                {importResult.import?.failed.slice(0, 2).map((failure) => <small key={failure.url}>{failure.message}</small>)}
+                <div className="admin-local-download-preview">
+                  {importResult.extraction.imageUrls.slice(0, 8).map((url, index) => (
+                    <img src={url} alt={`已提取图片 ${index + 1}`} referrerPolicy="no-referrer" loading="lazy" key={url} />
+                  ))}
+                </div>
+                {importResult.failed?.slice(0, 2).map((failure) => <small key={failure.url}>{failure.message}</small>)}
               </div>
             )}
           </section>

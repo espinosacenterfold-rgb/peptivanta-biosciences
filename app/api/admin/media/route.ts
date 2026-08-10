@@ -19,8 +19,10 @@ import {
 } from "../../../../lib/media-collection";
 import { normalizeCollectionKeywords } from "../../../../lib/community-rules";
 import {
-  importRemoteMediaAssets,
+  downloadRemoteImage,
+  extensionForMime as remoteExtensionForMime,
   inspectMediaSource,
+  resolveRemoteMediaAssets,
   validateMediaSourceUrl,
 } from "../../../../lib/media-import";
 
@@ -132,6 +134,8 @@ export async function POST(request: Request) {
         collectionTaskId?: number;
         collectionTaskStatus?: string;
         assetId?: number;
+        imageUrl?: string;
+        imageIndex?: number;
         imageUrls?: string | string[];
         rightsConfirmed?: boolean;
         availableFrom?: string;
@@ -248,25 +252,50 @@ export async function POST(request: Request) {
         return noStoreJson({ ok: true, inspection, ...(await mediaPayload()) });
       }
 
-      if (body.action === "import_remote_media") {
+      if (body.action === "extract_remote_media") {
         const source = validateMediaSourceUrl(
           body.sourceUrl ?? "",
           body.platform,
         );
-        const imported = await importRemoteMediaAssets({
+        const extraction = await resolveRemoteMediaAssets({
           platform: source.platform,
           sourceUrl: source.url,
-          title: body.sourceTitle,
-          tags: body.tags,
-          availableFrom: scheduledDate(body.availableFrom ?? ""),
           imageUrls: body.imageUrls,
           rightsConfirmed: Boolean(body.rightsConfirmed),
         });
         return noStoreJson({
           ok: true,
-          import: imported,
+          extraction,
           helperUrl: parserHelperUrl(source.platform),
-          ...(await mediaPayload()),
+        });
+      }
+
+      if (body.action === "download_remote_image") {
+        if (!body.rightsConfirmed) {
+          return noStoreJson(
+            { error: "Confirm that the image is owned or authorized before downloading." },
+            { status: 400 },
+          );
+        }
+        const source = validateMediaSourceUrl(
+          body.sourceUrl ?? "",
+          body.platform,
+        );
+        const downloaded = await downloadRemoteImage(
+          body.imageUrl ?? "",
+          source.url,
+        );
+        const index = Math.max(1, Math.min(99, Number(body.imageIndex) || 1));
+        const filename = `${source.platform}-media-${String(index).padStart(2, "0")}.${remoteExtensionForMime(downloaded.mime)}`;
+        return new Response(downloaded.bytes, {
+          status: 200,
+          headers: {
+            "Cache-Control": "private, no-store, max-age=0",
+            "Content-Disposition": `attachment; filename="${filename}"`,
+            "Content-Length": String(downloaded.bytes.byteLength),
+            "Content-Type": downloaded.mime,
+            "X-Content-Type-Options": "nosniff",
+          },
         });
       }
 
@@ -512,7 +541,23 @@ export async function DELETE(request: Request) {
   const originError = requireSameOrigin(request);
   if (originError) return originError;
   try {
-    const body = (await request.json()) as { assetId?: number };
+    const body = (await request.json()) as {
+      action?: string;
+      assetId?: number;
+      collectionTaskId?: number;
+    };
+    if (body.action === "delete_collection_task") {
+      const taskId = Number(body.collectionTaskId);
+      if (!Number.isInteger(taskId) || taskId <= 0) {
+        return noStoreJson({ error: "Invalid collection task." }, { status: 400 });
+      }
+      const d1 = await getD1();
+      await d1
+        .prepare("DELETE FROM media_collection_tasks WHERE id = ?")
+        .bind(taskId)
+        .run();
+      return noStoreJson({ ok: true, ...(await mediaPayload()) });
+    }
     const id = Number(body.assetId);
     if (!Number.isInteger(id) || id <= 0) return noStoreJson({ error: "Invalid media asset." }, { status: 400 });
     await deleteMediaAssetManually(id);

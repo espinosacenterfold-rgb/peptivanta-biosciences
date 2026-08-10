@@ -221,6 +221,8 @@
 .admin-import-result p { color: var(--muted); font-size: 10px; line-height: 1.6; }
 .admin-import-result small { display: block; margin-top: 6px; color: #9c2929; font-size: 8px; overflow-wrap: anywhere; }
 .admin-import-result a { min-height: 42px; padding: 0 14px; border-radius: 10px; background: var(--ink); color: white; display: inline-flex; align-items: center; gap: 15px; font-size: 10px; font-weight: 750; }
+.admin-local-download-preview { margin-top: 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.admin-local-download-preview img { width: 100%; aspect-ratio: 1; border-radius: 9px; background: #dfe8e6; object-fit: cover; }
 
 .admin-media-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .admin-media-grid article { min-width: 0; border: 1px solid var(--line); border-radius: 17px; overflow: hidden; background: white; }
@@ -1401,6 +1403,7 @@
 
   .admin-feedback-media-preview { grid-template-columns: 1fr; }
   .admin-feedback-media-preview img { height: 220px; }
+  .admin-local-download-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-remote-import-panel form .admin-remote-image-links,
   .admin-remote-import-panel form .admin-remote-rights,
   .admin-remote-import-panel form .admin-storage-actions { grid-column: 1; }

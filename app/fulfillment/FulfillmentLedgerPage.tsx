@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createWhatsAppUrl, siteConfig } from "../../site.config";
 import FulfillmentCases from "../FulfillmentCases";
-import FeedbackPreview from "../feedback/FeedbackPreview";
 import {
   htmlLang,
   isSiteLocale,
@@ -101,9 +100,6 @@ export default function FulfillmentLedgerPage() {
       </header>
 
       <FulfillmentCases locale={locale} />
-
-      <FeedbackPreview locale={locale} />
-
       <section className="fulfillment-page-cta section-shell">
         <p>{t.inquiry}</p>
         <a

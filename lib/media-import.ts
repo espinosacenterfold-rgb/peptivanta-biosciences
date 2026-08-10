@@ -1,10 +1,3 @@
-import { getD1, getMediaStore } from "../db";
-import {
-  enforceMediaStorageLimit,
-  getMediaStorageSettings,
-  mediaExpiryIso,
-} from "./media-storage";
-
 export type MediaSourcePlatform = "tiktok" | "xiaohongshu";
 
 export type SourceInspection = {
@@ -183,13 +176,13 @@ function imageMime(bytes: Uint8Array) {
   return "";
 }
 
-function extensionForMime(mime: string) {
+export function extensionForMime(mime: string) {
   if (mime === "image/png") return "png";
   if (mime === "image/webp") return "webp";
   return "jpg";
 }
 
-async function downloadRemoteImage(input: string, sourceUrl: string) {
+export async function downloadRemoteImage(input: string, sourceUrl: string) {
   const url = validateRemoteImageUrl(input);
   const response = await fetch(url, {
     redirect: "follow",
@@ -313,41 +306,9 @@ export async function inspectMediaSource(
     : inspectXiaohongshu(source.url);
 }
 
-function normalizedTags(input: unknown, platform: MediaSourcePlatform) {
-  const source = Array.isArray(input)
-    ? input
-    : String(input ?? "").split(/[，,\n]/);
-  return Array.from(
-    new Set(
-      [platform, ...source]
-        .map((tag) => String(tag).trim().toLowerCase())
-        .filter((tag) => /^[a-z0-9_+-]{1,40}$/.test(tag)),
-    ),
-  ).slice(0, 20);
-}
-
-async function sha256(value: string) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-function fingerprintInput(value: string) {
-  const url = new URL(value);
-  return `${url.origin}${url.pathname}`;
-}
-
-export async function importRemoteMediaAssets(input: {
+export async function resolveRemoteMediaAssets(input: {
   platform: MediaSourcePlatform;
   sourceUrl: string;
-  title?: string;
-  author?: string;
-  tags?: unknown;
-  availableFrom: string;
   imageUrls?: unknown;
   rightsConfirmed: boolean;
 }) {
@@ -367,126 +328,9 @@ export async function importRemoteMediaAssets(input: {
     );
   }
 
-  const d1 = await getD1();
-  const media = await getMediaStore();
-  const storageSettings = await getMediaStorageSettings();
-  const tags = normalizedTags(input.tags, source.platform);
-  const imported: Array<{ publicId: string; title: string }> = [];
-  const skipped: string[] = [];
-  const failed: Array<{ url: string; message: string }> = [];
-
-  for (const [index, remoteUrl] of imageUrls.slice(0, MAX_REMOTE_IMAGES).entries()) {
-    try {
-      const fingerprint = await sha256(fingerprintInput(remoteUrl));
-      const publicId = `media_remote_${fingerprint.slice(0, 24)}`;
-      const existing = await d1
-        .prepare("SELECT public_id FROM media_library_assets WHERE public_id = ?")
-        .bind(publicId)
-        .first<{ public_id: string }>();
-      if (existing) {
-        skipped.push(publicId);
-        continue;
-      }
-      const downloaded = await downloadRemoteImage(remoteUrl, source.url);
-      const capacity = await enforceMediaStorageLimit({
-        incomingBytes: downloaded.bytes.byteLength,
-      });
-      if (!capacity.canAccept) {
-        throw new Error("R2 容量保护已阻止本次导入。");
-      }
-      const extension = extensionForMime(downloaded.mime);
-      const r2Key = `feedback-media/${new Date().toISOString().slice(0, 7)}/${publicId}.${extension}`;
-      const title = (
-        input.title ||
-        inspection?.title ||
-        `${source.platform === "tiktok" ? "TikTok" : "小红书"} 素材`
-      ).slice(0, 160) + (imageUrls.length > 1 ? ` · ${index + 1}` : "");
-      const reservation = await d1
-        .prepare(
-          `INSERT INTO media_library_assets (
-            public_id, status, source_platform, source_url, preview_url,
-            source_title, source_author, rights_basis, rights_confirmed_at,
-            original_filename, r2_key, mime_type, size_bytes, width, height,
-            tags_json, available_from, expires_at
-          )
-          SELECT ?, 'uploading', ?, ?, ?, ?, ?, 'owned_or_authorized',
-                 CURRENT_TIMESTAMP, ?, ?, ?, ?, 0, 0, ?, ?, ?
-          WHERE COALESCE((
-            SELECT SUM(size_bytes) FROM media_library_assets WHERE r2_key <> ''
-          ), 0) + ? <= COALESCE((
-            SELECT hard_limit_bytes FROM media_storage_settings WHERE id = 1
-          ), 10000000000)
-          ON CONFLICT(public_id) DO NOTHING`,
-        )
-        .bind(
-          publicId,
-          source.platform,
-          source.url,
-          downloaded.finalUrl,
-          title,
-          (input.author || inspection?.author || "").slice(0, 100),
-          `remote-${index + 1}.${extension}`,
-          r2Key,
-          downloaded.mime,
-          downloaded.bytes.byteLength,
-          JSON.stringify(tags),
-          input.availableFrom,
-          mediaExpiryIso(storageSettings.retentionDays),
-          downloaded.bytes.byteLength,
-        )
-        .run();
-      if (Number(reservation.meta.changes ?? 0) !== 1) {
-        skipped.push(publicId);
-        continue;
-      }
-      try {
-        await media.put(r2Key, downloaded.bytes, {
-          httpMetadata: {
-            contentType: downloaded.mime,
-            cacheControl: "public, max-age=86400",
-          },
-          customMetadata: {
-            publicId,
-            sourcePlatform: source.platform,
-            importMode: "authorized-remote",
-          },
-        });
-        await d1
-          .prepare(
-            `UPDATE media_library_assets
-             SET status = 'approved', updated_at = CURRENT_TIMESTAMP
-             WHERE public_id = ? AND status = 'uploading'`,
-          )
-          .bind(publicId)
-          .run();
-        imported.push({ publicId, title });
-      } catch (error) {
-        await media.delete(r2Key).catch(() => undefined);
-        await d1
-          .prepare(
-            "DELETE FROM media_library_assets WHERE public_id = ? AND status = 'uploading'",
-          )
-          .bind(publicId)
-          .run();
-        throw error;
-      }
-    } catch (error) {
-      failed.push({
-        url: remoteUrl,
-        message: error instanceof Error ? error.message : "导入失败。",
-      });
-    }
-  }
-
-  if (imported.length === 0 && skipped.length === 0) {
-    throw new Error(failed[0]?.message ?? "没有可保存的图片素材。");
-  }
   return {
     source,
     inspection,
-    imported,
-    skipped,
-    failed,
-    requestedCount: imageUrls.length,
+    imageUrls: imageUrls.slice(0, MAX_REMOTE_IMAGES),
   };
 }

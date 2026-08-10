@@ -11,6 +11,11 @@ import {
   normalizeCollectionKeywords,
   xiaohongshuSearchUrl,
 } from "../lib/community-rules.ts";
+import {
+  extractRemoteImageUrls,
+  validateMediaSourceUrl,
+  validateRemoteImageUrl,
+} from "../lib/media-import.ts";
 
 test("illustrative feedback is stable, multilingual, and service-only", () => {
   const context = {
@@ -53,6 +58,22 @@ test("Xiaohongshu collection creates research links without copying posts", () =
   const url = new URL(xiaohongshuSearchUrl("外贸 发货"));
   assert.equal(url.hostname, "www.xiaohongshu.com");
   assert.equal(url.searchParams.get("keyword"), "外贸 发货");
+});
+
+test("local media extraction accepts only supported sources and public image URLs", () => {
+  assert.equal(
+    validateMediaSourceUrl("https://www.xiaohongshu.com/explore/example").platform,
+    "xiaohongshu",
+  );
+  assert.throws(() => validateMediaSourceUrl("https://example.com/post"));
+  assert.throws(() => validateRemoteImageUrl("https://127.0.0.1/private.jpg"));
+  const urls = extractRemoteImageUrls(
+    "https://cdn.example.com/one.jpg\nhttps://cdn.example.com/one.jpg\nhttps://cdn.example.com/two.webp",
+  );
+  assert.deepEqual(urls, [
+    "https://cdn.example.com/one.jpg",
+    "https://cdn.example.com/two.webp",
+  ]);
 });
 
 test("customer access and feedback workspace expose all five site languages", async () => {
@@ -101,7 +122,7 @@ test("community storage keeps secrets one-way and public feedback labelled", asy
   assert.match(migration, /feedback_entries_sample_case_idx/);
 });
 
-test("media library uses R2, delayed availability, previews, and authorized remote imports", async () => {
+test("media library keeps R2 uploads separate from authorized local link downloads", async () => {
   const [hosting, wrangler, mediaRoute, mediaPage, mediaImport, feedbackLedger, feedbackRoute, feedbackAdmin, worker, storage, collection, schema, migration, collectionMigration, previewMigration] = await Promise.all([
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
@@ -125,7 +146,10 @@ test("media library uses R2, delayed availability, previews, and authorized remo
   assert.match(wrangler, /17 3 \* \* \*/);
   assert.match(mediaRoute, /https:\/\/tiksave\.io\/zh-cn/);
   assert.match(mediaRoute, /https:\/\/dy\.kukutool\.com\/xiaohongshu/);
-  assert.match(mediaRoute, /import_remote_media/);
+  assert.match(mediaRoute, /extract_remote_media/);
+  assert.match(mediaRoute, /download_remote_image/);
+  assert.match(mediaRoute, /Content-Disposition/);
+  assert.match(mediaRoute, /delete_collection_task/);
   assert.match(mediaRoute, /refresh_source_preview/);
   assert.match(mediaRoute, /owned_or_authorized/);
   assert.match(mediaRoute, /scheduledDate/);
@@ -133,12 +157,17 @@ test("media library uses R2, delayed availability, previews, and authorized remo
   assert.match(mediaImport, /MAX_REMOTE_IMAGES = 18/);
   assert.match(mediaImport, /validateRemoteImageUrl/);
   assert.match(mediaImport, /rightsConfirmed/);
-  assert.match(mediaImport, /media\.put/);
+  assert.match(mediaImport, /resolveRemoteMediaAssets/);
+  assert.match(mediaImport, /downloadRemoteImage/);
+  assert.doesNotMatch(mediaImport, /media\.put|media_library_assets/);
   assert.match(mediaPage, /image\/webp/);
   assert.match(mediaPage, /0\.82/);
   assert.match(mediaPage, /10GB 免费额度保护/);
   assert.match(mediaPage, /保存容量预设/);
-  assert.match(mediaPage, /外链提取并保存/);
+  assert.match(mediaPage, /外链提取并保存到本地/);
+  assert.match(mediaPage, /提取并下载到电脑/);
+  assert.match(mediaPage, /删除任务/);
+  assert.doesNotMatch(mediaPage, /提取并保存到素材库/);
   assert.match(mediaPage, /preview_url/);
   assert.match(mediaPage, /复制原链接并打开解析器/);
   assert.match(storage, /R2_FREE_STORAGE_BYTES = 10_000_000_000/);
