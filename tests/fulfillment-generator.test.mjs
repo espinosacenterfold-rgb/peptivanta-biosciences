@@ -440,27 +440,44 @@ test("expanded generator controls change only newly generated business mix", () 
   }
 });
 
-test("the next daily update appends records without rewriting prior orders", () => {
+test("changed generator thresholds append records without rewriting prior orders", () => {
   const priorRows = createBackfillRows(DISPLAY_LIMIT, asOf);
   const immutableSnapshot = structuredClone(priorRows);
+  const changedSettings = normalizeGeneratorSettings({
+    ...DEFAULT_GENERATOR_SETTINGS,
+    dailyMinimum: 12,
+    dailyMaximum: 12,
+    largeOrderRateBps: 500,
+    repeatOrderRateBps: 0,
+    multiProductRateBps: 0,
+    bulkGapDays: 60,
+    marketUsWeight: 100,
+    marketCaWeight: 1,
+    marketBrWeight: 1,
+    marketMxWeight: 1,
+  });
   const lastBulk = priorRows.find((row) => row.service === "bulk");
   const lastMegaBulk = priorRows.find(
     (row) => row.service === "bulk" && row.quantityUnits >= 3000,
   );
 
-  const nextDay = createDailyRows(new Date("2026-07-29T00:00:00.000Z"), {
-    lastBulkAt: lastBulk?.occurredAt ?? null,
-    lastMegaBulkAt: lastMegaBulk?.occurredAt ?? null,
-    repeatCandidates: priorRows.map((row) => ({
-      reference: row.reference,
-      occurredAt: row.occurredAt,
-      destination: row.destination,
-      service: row.service,
-      items: JSON.parse(row.itemsJson),
-      quantityUnits: row.quantityUnits,
-      customerKey: row.customerKey,
-    })),
-  });
+  const nextDay = createDailyRows(
+    new Date("2026-07-29T00:00:00.000Z"),
+    {
+      lastBulkAt: lastBulk?.occurredAt ?? null,
+      lastMegaBulkAt: lastMegaBulk?.occurredAt ?? null,
+      repeatCandidates: priorRows.map((row) => ({
+        reference: row.reference,
+        occurredAt: row.occurredAt,
+        destination: row.destination,
+        service: row.service,
+        items: JSON.parse(row.itemsJson),
+        quantityUnits: row.quantityUnits,
+        customerKey: row.customerKey,
+      })),
+    },
+    changedSettings,
+  );
   const combinedRows = [...priorRows, ...nextDay.rows];
 
   assert.deepEqual(priorRows, immutableSnapshot);

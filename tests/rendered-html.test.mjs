@@ -288,11 +288,19 @@ test("renders the expanded illustrative-order workspace", async () => {
   assert.match(page, /一键业务方案/);
   assert.match(page, /暂停每日生成/);
   assert.match(page, /B2B 拓展/);
+  assert.match(page, /历史订单保护/);
+  assert.match(page, /旧订单保持不变/);
   assert.match(page, /\/api\/admin\/generator/);
   assert.match(route, /fulfillment_generator_settings/);
+  assert.match(route, /mode: "append_only"/);
   assert.match(route, /multi_product_rate_bps/);
   assert.match(route, /market_us_weight/);
   assert.doesNotMatch(route, /manual_fulfillment_orders/);
+
+  const settingsPatch = route.slice(route.indexOf("export async function PATCH"));
+  assert.match(settingsPatch, /UPDATE fulfillment_generator_settings SET/);
+  assert.doesNotMatch(settingsPatch, /UPDATE\s+fulfillment_cases/i);
+  assert.doesNotMatch(settingsPatch, /DELETE\s+FROM\s+fulfillment_cases/i);
 });
 
 test("uses one detailed admin hub with shared navigation and focused management tools", async () => {

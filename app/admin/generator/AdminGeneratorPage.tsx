@@ -48,6 +48,10 @@ type Payload = {
   settings?: Settings;
   retentionLimit?: number;
   updatedAt?: string | null;
+  historyProtection?: {
+    enabled: boolean;
+    mode: "append_only";
+  };
   stats?: Stats;
   error?: string;
 };
@@ -152,7 +156,7 @@ export default function AdminGeneratorPage() {
       });
       if (!response.ok) throw new Error("设置已保存，但订单同步失败。");
       const refreshed = await request("GET");
-      setMessage(`${successMessage} 当前保留 ${refreshed.stats?.total ?? 0} 条模拟记录。`);
+      setMessage(`${successMessage} 旧订单保持不变；当前保留 ${refreshed.stats?.total ?? 0} 条模拟记录。`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败。");
     } finally {
@@ -244,6 +248,7 @@ export default function AdminGeneratorPage() {
               <div><dt>复购目标</dt><dd>{settings.repeatOrderRateBps / 100}%</dd></div>
               <div><dt>贴牌与大货</dt><dd>{settings.largeOrderRateBps / 100}%</dd></div>
               <div><dt>多产品组合</dt><dd>{settings.multiProductRateBps / 100}%</dd></div>
+              <div className="is-protected"><dt>历史订单保护</dt><dd>{payload.historyProtection?.enabled ? "已锁定" : "检查中"}</dd></div>
             </dl>
             <div className="admin-generator-quick-actions">
               <button className={settings.generationEnabled ? "is-pause" : "is-start"} type="button" onClick={() => void toggleGenerator()} disabled={busy}>{settings.generationEnabled ? "暂停每日生成" : "恢复每日生成"}</button>

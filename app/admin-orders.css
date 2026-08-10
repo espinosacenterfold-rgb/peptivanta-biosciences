@@ -368,6 +368,8 @@
 .admin-generator-status-card dl div { padding: 11px; border-radius: 11px; background: #f2f6f5; }
 .admin-generator-status-card dt { color: var(--muted); font-size: 8px; }
 .admin-generator-status-card dd { margin: 5px 0 0; font-size: 11px; font-weight: 750; }
+.admin-generator-status-card dl .is-protected { background: rgba(25,216,170,.1); }
+.admin-generator-status-card dl .is-protected dd { color: #08715d; }
 .admin-generator-quick-actions { margin-top: 12px; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
 .admin-generator-quick-actions button { min-height: 42px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); cursor: pointer; font: 730 9px var(--font-body); }
 .admin-generator-quick-actions button.is-start { border-color: #0a2c2e; background: #0a2c2e; color: white; }

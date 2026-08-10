@@ -109,6 +109,10 @@ async function readSettings() {
     settings,
     updatedAt: row?.updated_at ?? null,
     retentionLimit: MAX_GENERATED_RETENTION,
+    historyProtection: {
+      enabled: true,
+      mode: "append_only" as const,
+    },
     stats: {
       total: Number(stats?.total ?? 0),
       repeatTotal: Number(stats?.repeat_total ?? 0),
@@ -158,6 +162,8 @@ export async function PATCH(request: Request) {
     const input = (await request.json()) as Partial<GeneratorSettings>;
     const settings = normalizeGeneratorSettings(input);
     const d1 = await getD1();
+    // Generator controls live in their own singleton row. Saving thresholds
+    // must never update, regenerate, or delete an existing fulfillment case.
     await d1
       .prepare(
         `UPDATE fulfillment_generator_settings SET
