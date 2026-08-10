@@ -5,6 +5,7 @@ import {
   AdminHeader,
   AdminLogin,
   AdminPage,
+  AdminSessionChecking,
 } from "../_components/AdminChrome";
 import { useAdminSession } from "../_components/useAdminSession";
 import { downloadAdminCsv } from "../_components/admin-export";
@@ -418,6 +419,7 @@ export default function AdminMediaPage() {
     }
   }
 
+  if (auth.checking) return <AdminSessionChecking />;
   if (!auth.authenticated) return <AdminLogin {...auth} />;
 
   const storage = data?.storage;

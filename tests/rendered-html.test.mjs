@@ -194,8 +194,8 @@ test("renders the deeper unified fulfillment administration entry", async () => 
   const response = await render("/admin/orders");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /内部管理面板/);
-  assert.match(html, /统一管理密钥/);
+  assert.match(html, /正在打开管理中心/);
+  assert.match(html, /正在验证此标签页的安全会话/);
   assert.match(html, /name="robots" content="noindex, nofollow, nocache"/i);
 
   const [adminPage, adminRoute, auth, catalogue, pricing] = await Promise.all([
@@ -247,10 +247,10 @@ test("does not expose a top-level admin landing page", async () => {
 for (const [pathname, expected] of [
   ["/feedback", /A clearer view of the buying experience/i],
   ["/customer/access", /Your order feedback, in one light account/i],
-  ["/admin/workspace", /内部管理面板/],
-  ["/admin/feedback", /内部管理面板/],
-  ["/admin/customers", /内部管理面板/],
-  ["/admin/media", /内部管理面板/],
+  ["/admin/workspace", /正在打开管理中心/],
+  ["/admin/feedback", /正在打开管理中心/],
+  ["/admin/customers", /正在打开管理中心/],
+  ["/admin/media", /正在打开管理中心/],
 ]) {
   test(`renders the new ${pathname} surface`, async () => {
     const response = await render(pathname);
@@ -264,8 +264,8 @@ test("renders the expanded illustrative-order workspace", async () => {
   const response = await render("/admin/generator");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /内部管理面板/);
-  assert.match(html, /统一管理密钥/);
+  assert.match(html, /正在打开管理中心/);
+  assert.match(html, /正在验证此标签页的安全会话/);
 
   const [page, route] = await Promise.all([
     readFile(
@@ -323,6 +323,27 @@ test("uses one detailed admin hub with shared navigation and focused management 
   assert.match(media, /R2 容量保护/);
   assert.match(media, /admin-inline-disclosure/);
   assert.match(media, /搜索素材/);
+});
+
+test("keeps one server-validated admin session across module navigation", async () => {
+  const [layout, session, chrome, orders, generator] = await Promise.all([
+    readFile(new URL("../app/admin/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/_components/useAdminSession.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/_components/AdminChrome.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/orders/AdminOrdersPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/generator/AdminGeneratorPage.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(layout, /AdminSessionProvider/);
+  assert.match(session, /sessionStorage\.getItem\(ADMIN_SESSION_KEY\)/);
+  assert.match(session, /performRequest\("\/api\/admin\/dashboard"/);
+  assert.match(session, /response\.status === 401/);
+  assert.match(session, /sessionStorage\.removeItem\(ADMIN_SESSION_KEY\)/);
+  assert.match(chrome, /正在验证此标签页的安全会话/);
+  assert.match(orders, /useAdminSession/);
+  assert.match(generator, /useAdminSession/);
+  assert.doesNotMatch(orders, /const SESSION_KEY/);
+  assert.doesNotMatch(generator, /const SESSION_KEY/);
 });
 
 test("renders the dedicated multilingual analytical report library", async () => {

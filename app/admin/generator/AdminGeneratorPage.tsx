@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
+import { AdminHeader, AdminLogin, AdminPage, AdminSessionChecking } from "../_components/AdminChrome";
+import { useAdminSession } from "../_components/useAdminSession";
 
 type Settings = {
   displayLimit: number;
@@ -51,7 +52,6 @@ type Payload = {
   error?: string;
 };
 
-const SESSION_KEY = "peptivanta_fulfillment_admin_key";
 const defaults: Settings = {
   displayLimit: 300,
   dailyMinimum: 10,
@@ -88,8 +88,7 @@ const presets: Array<{ name: string; description: string; settings: Partial<Sett
 ];
 
 export default function AdminGeneratorPage() {
-  const [adminKey, setAdminKey] = useState("");
-  const [authenticated, setAuthenticated] = useState(false);
+  const auth = useAdminSession();
   const [settings, setSettings] = useState(defaults);
   const [payload, setPayload] = useState<Payload>({});
   const [busy, setBusy] = useState(false);
@@ -97,66 +96,27 @@ export default function AdminGeneratorPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const stored = window.sessionStorage.getItem(SESSION_KEY);
-    if (!stored) return;
-    // The two workspaces share one tab-scoped sign-in. Moving from real
-    // orders to generator controls therefore never asks for the key again.
-    void Promise.resolve().then(async () => {
-      setAdminKey(stored);
-      setBusy(true);
-      try {
-        await request("GET", undefined, stored);
-        setAuthenticated(true);
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "验证失败。");
-      } finally {
-        setBusy(false);
-      }
+    if (!auth.authenticated) return;
+    const frame = window.requestAnimationFrame(() => {
+      void request("GET").catch((caught) => {
+        setError(caught instanceof Error ? caught.message : "模拟订单设置加载失败。");
+      });
     });
-    // request is intentionally a component-local transport helper.
+    return () => window.cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [auth.authenticated]);
 
   async function request(
     method: "GET" | "PATCH",
     body?: Settings,
-    key = adminKey,
   ) {
-    const response = await fetch("/api/admin/generator", {
+    const result = await auth.request<Payload>("/api/admin/generator", {
       method,
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
       body: body ? JSON.stringify(body) : undefined,
     });
-    const result = (await response.json()) as Payload;
-    if (!response.ok) {
-      if (response.status === 401) {
-        setAuthenticated(false);
-        window.sessionStorage.removeItem(SESSION_KEY);
-      }
-      throw new Error(result.error ?? "操作失败，请重试。");
-    }
     setPayload(result);
     if (result.settings) setSettings(result.settings);
     return result;
-  }
-
-  async function signIn(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await request("GET", undefined, adminKey);
-      window.sessionStorage.setItem(SESSION_KEY, adminKey);
-      setAuthenticated(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "验证失败。");
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function synchronizeLedger() {
@@ -217,13 +177,6 @@ export default function AdminGeneratorPage() {
     await persistSettings(next, `已应用“${name}”方案。`);
   }
 
-  function signOut() {
-    window.sessionStorage.removeItem(SESSION_KEY);
-    setAdminKey("");
-    setAuthenticated(false);
-    setPayload({});
-  }
-
   const marketWeightTotal = useMemo(
     () =>
       settings.marketUsWeight +
@@ -235,9 +188,8 @@ export default function AdminGeneratorPage() {
   const targetMarketPercent = (weight: number) =>
     marketWeightTotal > 0 ? `${((weight / marketWeightTotal) * 100).toFixed(0)}%` : "0%";
 
-  if (!authenticated) {
-    return <AdminLogin adminKey={adminKey} setAdminKey={setAdminKey} busy={busy} error={error} signIn={signIn} />;
-  }
+  if (auth.checking) return <AdminSessionChecking />;
+  if (!auth.authenticated) return <AdminLogin {...auth} />;
 
   const stats = payload.stats;
   const percent = (value = 0, total = 0) =>
@@ -258,7 +210,7 @@ export default function AdminGeneratorPage() {
 
   return (
     <AdminPage className="admin-generator-page">
-      <AdminHeader current="模拟订单" signOut={signOut} />
+      <AdminHeader current="模拟订单" signOut={() => { setPayload({}); auth.signOut(); }} />
 
       <section className="admin-orders-shell">
         <div className="admin-orders-intro">
@@ -275,9 +227,9 @@ export default function AdminGeneratorPage() {
           </dl>
         </div>
 
-        {(message || error) && (
-          <div className={error ? "admin-alert is-error" : "admin-alert"}>
-            {error || message}
+        {(message || error || auth.error) && (
+          <div className={error || auth.error ? "admin-alert is-error" : "admin-alert"}>
+            {error || auth.error || message}
           </div>
         )}
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
+import { AdminHeader, AdminLogin, AdminPage, AdminSessionChecking } from "../_components/AdminChrome";
 import { downloadAdminCsv } from "../_components/admin-export";
 import { useAdminSession } from "../_components/useAdminSession";
 
@@ -108,6 +108,7 @@ export default function AdminCustomersPage() {
     ]);
   }
 
+  if (auth.checking) return <AdminSessionChecking />;
   if (!auth.authenticated) return <AdminLogin {...auth} />;
 
   const activeCount = data?.customers.filter((customer) => customer.status !== "suspended").length ?? 0;

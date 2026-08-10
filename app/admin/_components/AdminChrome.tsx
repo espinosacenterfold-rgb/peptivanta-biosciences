@@ -40,6 +40,19 @@ export function AdminLogin({
   );
 }
 
+export function AdminSessionChecking() {
+  return (
+    <main className="admin-login-page">
+      <section className="admin-login-card admin-session-checking" aria-live="polite">
+        <div className="admin-brand"><img src="/logo-mark.svg" alt="" width={48} height={48} /><span><strong>{siteConfig.brandName}</strong><small>Secure Operations</small></span></div>
+        <span className="admin-session-spinner" aria-hidden="true" />
+        <h1>正在打开管理中心</h1>
+        <p>正在验证此标签页的安全会话，验证完成后将自动进入。</p>
+      </section>
+    </main>
+  );
+}
+
 export function AdminHeader({ current, signOut }: { current: string; signOut: () => void }) {
   return (
     <header className="admin-orders-header">

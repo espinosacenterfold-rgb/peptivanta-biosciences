@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
+import { AdminHeader, AdminLogin, AdminPage, AdminSessionChecking } from "../_components/AdminChrome";
 import { useAdminSession } from "../_components/useAdminSession";
 
 type Stats = {
@@ -99,6 +99,7 @@ export default function AdminWorkspacePage() {
     [data?.pipeline],
   );
 
+  if (auth.checking) return <AdminSessionChecking />;
   if (!auth.authenticated) return <AdminLogin {...auth} />;
 
   const metrics = [

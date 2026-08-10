@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
+import { AdminHeader, AdminLogin, AdminPage, AdminSessionChecking } from "../_components/AdminChrome";
 import { downloadAdminCsv } from "../_components/admin-export";
 import { useAdminSession } from "../_components/useAdminSession";
 
@@ -97,6 +97,7 @@ export default function AdminFeedbackPage() {
       ...visible.map((row) => [row.public_id, row.manual_reference, row.source_type === "illustrative" ? "示例服务反馈" : "真实客户提交", row.country_code, row.service, row.username || row.company_name || "模拟订单", row.status, displayText(row), row.submitted_at, row.expires_at]),
     ]);
   }
+  if (auth.checking) return <AdminSessionChecking />;
   if (!auth.authenticated) return <AdminLogin {...auth} />;
   return (
     <AdminPage className="admin-feedback-page">

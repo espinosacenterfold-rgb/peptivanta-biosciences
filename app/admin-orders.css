@@ -249,6 +249,21 @@
   box-shadow: 0 34px 100px rgba(8, 33, 36, 0.12);
 }
 
+.admin-session-checking { text-align: left; }
+.admin-session-checking .admin-brand { margin-bottom: 42px; }
+.admin-session-checking h1 { font-size: clamp(38px, 6vw, 58px); }
+.admin-session-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(50,124,255,.15);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  display: block;
+  animation: admin-session-spin .8s linear infinite;
+}
+@keyframes admin-session-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .admin-session-spinner { animation: none; border-top-color: rgba(50,124,255,.7); } }
+
 .admin-brand {
   margin-bottom: 58px;
   display: flex;

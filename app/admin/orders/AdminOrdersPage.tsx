@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AdminHeader, AdminLogin, AdminPage } from "../_components/AdminChrome";
+import { AdminHeader, AdminLogin, AdminPage, AdminSessionChecking } from "../_components/AdminChrome";
 import { downloadAdminCsv } from "../_components/admin-export";
+import { useAdminSession } from "../_components/useAdminSession";
 import {
   PRODUCT_CATALOG,
   PRODUCT_CATEGORY_LABELS,
@@ -68,7 +69,6 @@ type OrderResponse = {
   error?: string;
 };
 
-const SESSION_KEY = "peptivanta_fulfillment_admin_key";
 const usdFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -129,8 +129,7 @@ function usdToCents(value: string) {
 }
 
 export default function AdminOrdersPage() {
-  const [adminKey, setAdminKey] = useState("");
-  const [authenticated, setAuthenticated] = useState(false);
+  const auth = useAdminSession();
   const [orders, setOrders] = useState<ManualOrder[]>([]);
   const [draft, setDraft] = useState(emptyDraft);
   const [busy, setBusy] = useState(false);
@@ -145,25 +144,15 @@ export default function AdminOrdersPage() {
   const [bulkStatus, setBulkStatus] = useState<Status>("confirmed");
 
   useEffect(() => {
-    const stored = window.sessionStorage.getItem(SESSION_KEY);
-    if (!stored) return;
-    // Both admin workspaces share this one tab-scoped sign-in. Returning from
-    // generator controls therefore opens the real-order workspace directly.
-    void Promise.resolve().then(async () => {
-      setAdminKey(stored);
-      setBusy(true);
-      try {
-        await adminRequest("GET", undefined, stored);
-        setAuthenticated(true);
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "验证失败。");
-      } finally {
-        setBusy(false);
-      }
+    if (!auth.authenticated) return;
+    const frame = window.requestAnimationFrame(() => {
+      void adminRequest("GET").catch((caught) => {
+        setError(caught instanceof Error ? caught.message : "订单加载失败。");
+      });
     });
-    // adminRequest is intentionally a component-local transport helper.
+    return () => window.cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [auth.authenticated]);
 
   const publishedCount = useMemo(
     () => orders.filter((order) => Boolean(order.isPublished)).length,
@@ -228,46 +217,17 @@ export default function AdminOrdersPage() {
   async function adminRequest(
     method: "GET" | "POST" | "PATCH" | "DELETE",
     body?: unknown,
-    key = adminKey,
   ) {
-    const response = await fetch("/api/admin/orders", {
+    const result = await auth.request<OrderResponse>("/api/admin/orders", {
       method,
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
       body: body ? JSON.stringify(body) : undefined,
     });
-    const result = (await response.json()) as OrderResponse;
-    if (!response.ok) {
-      if (response.status === 401) {
-        setAuthenticated(false);
-        window.sessionStorage.removeItem(SESSION_KEY);
-      }
-      throw new Error(result.error ?? "操作失败，请重试。");
-    }
     setOrders(
       (result.orders ?? []).map((order) => ({
         ...order,
         isPublished: Boolean(order.isPublished),
       })),
     );
-  }
-
-  async function signIn(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await adminRequest("GET", undefined, adminKey);
-      window.sessionStorage.setItem(SESSION_KEY, adminKey);
-      setAuthenticated(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "验证失败。");
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function createOrder(event: FormEvent) {
@@ -435,20 +395,12 @@ export default function AdminOrdersPage() {
     ]);
   }
 
-  function signOut() {
-    window.sessionStorage.removeItem(SESSION_KEY);
-    setAdminKey("");
-    setAuthenticated(false);
-    setOrders([]);
-  }
-
-  if (!authenticated) {
-    return <AdminLogin adminKey={adminKey} setAdminKey={setAdminKey} busy={busy} error={error} signIn={signIn} />;
-  }
+  if (auth.checking) return <AdminSessionChecking />;
+  if (!auth.authenticated) return <AdminLogin {...auth} />;
 
   return (
     <AdminPage>
-      <AdminHeader current="真实订单" signOut={signOut} />
+      <AdminHeader current="真实订单" signOut={() => { setOrders([]); auth.signOut(); }} />
 
       <section className="admin-orders-shell">
         <div className="admin-orders-intro">
@@ -465,9 +417,9 @@ export default function AdminOrdersPage() {
           </dl>
         </div>
 
-        {(message || error) && (
-          <div className={error ? "admin-alert is-error" : "admin-alert"}>
-            {error || message}
+        {(message || error || auth.error) && (
+          <div className={error || auth.error ? "admin-alert is-error" : "admin-alert"}>
+            {error || auth.error || message}
           </div>
         )}
 
