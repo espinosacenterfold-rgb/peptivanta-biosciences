@@ -2,7 +2,7 @@ import type { SiteLocale } from "../i18n";
 
 export type PublicFeedbackRecord = {
   id: string;
-  sourceType: "illustrative" | "customer_submitted" | string;
+  sourceType: "customer_submitted" | string;
   countryCode: string;
   service: string;
   orderKind: string;
@@ -15,39 +15,34 @@ export type PublicFeedbackRecord = {
 
 const labels = {
   en: {
-    illustrative: "Illustrative service feedback",
     real: "Customer submitted · reviewed",
+    illustrative: "Example service feedback",
     first: "First order",
     repeat: "Repeat order",
-    image: "Illustrative image",
   },
   pt: {
-    illustrative: "Exemplo ilustrativo de serviço",
     real: "Enviado por cliente · revisado",
+    illustrative: "Exemplo de feedback de serviço",
     first: "Primeiro pedido",
     repeat: "Recompra",
-    image: "Imagem ilustrativa",
   },
   es: {
-    illustrative: "Ejemplo ilustrativo de servicio",
     real: "Enviado por cliente · revisado",
+    illustrative: "Ejemplo de comentario de servicio",
     first: "Primer pedido",
     repeat: "Recompra",
-    image: "Imagen ilustrativa",
   },
   fr: {
-    illustrative: "Exemple illustratif de service",
     real: "Soumis par un client · vérifié",
+    illustrative: "Exemple de retour de service",
     first: "Première commande",
     repeat: "Commande répétée",
-    image: "Image illustrative",
   },
   zh: {
-    illustrative: "示例服务反馈",
     real: "客户提交 · 已审核",
+    illustrative: "示例服务反馈",
     first: "首次订单",
     repeat: "客户复购",
-    image: "示意图片",
   },
 } as const;
 
@@ -73,7 +68,6 @@ export default function FeedbackCard({
   locale: SiteLocale;
 }) {
   const t = labels[locale];
-  const illustrative = record.sourceType === "illustrative";
   const date = new Intl.DateTimeFormat(
     locale === "zh" ? "zh-CN" : locale === "pt" ? "pt-BR" : locale,
     { year: "numeric", month: "short", day: "2-digit" },
@@ -83,14 +77,13 @@ export default function FeedbackCard({
     <article className={`feedback-card ${record.mediaUrl ? "has-media" : "is-text-only"}`}>
       {record.mediaUrl && (
         <figure className="feedback-card-media">
-          <img src={record.mediaUrl} alt={record.mediaAlt || t.image} loading="lazy" decoding="async" />
-          {illustrative && <figcaption>{t.image}</figcaption>}
+          <img src={record.mediaUrl} alt={record.mediaAlt} loading="lazy" decoding="async" />
         </figure>
       )}
       <div className="feedback-card-body">
         <div className="feedback-card-labels">
-          <span className={illustrative ? "is-illustrative" : "is-customer"}>
-            {illustrative ? t.illustrative : t.real}
+          <span className={record.sourceType === "illustrative" ? "is-illustrative" : "is-customer"}>
+            {record.sourceType === "illustrative" ? t.illustrative : t.real}
           </span>
           <span>{record.orderKind === "repeat" ? t.repeat : t.first}</span>
         </div>

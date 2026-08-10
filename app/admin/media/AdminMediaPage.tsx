@@ -16,6 +16,7 @@ type MediaAsset = {
   status: string;
   source_platform: string;
   source_url: string;
+  preview_url: string;
   source_title: string;
   source_author: string;
   r2_key: string;
@@ -85,15 +86,13 @@ type MediaPayload = {
 
 type ImportResult = {
   helperUrl: string;
-  publicId: string;
-  message: string;
-  source: {
-    platform: string;
-    url: string;
-    title: string;
-    author: string;
+  import?: {
+    imported: Array<{ publicId: string; title: string }>;
+    skipped: string[];
+    failed: Array<{ url: string; message: string }>;
+    requestedCount: number;
   };
-};
+} & MediaPayload;
 
 const DECIMAL_GB = 1_000_000_000;
 
@@ -154,6 +153,8 @@ export default function AdminMediaPage() {
   const [assetQuery, setAssetQuery] = useState("");
   const [assetStatus, setAssetStatus] = useState("all");
   const [assetPlatform, setAssetPlatform] = useState("all");
+  const [importPlatform, setImportPlatform] = useState("xiaohongshu");
+  const [importSourceUrl, setImportSourceUrl] = useState("");
   const [tomorrow] = useState(() =>
     new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
   );
@@ -321,21 +322,58 @@ export default function AdminMediaPage() {
       const result = await auth.request<ImportResult>("/api/admin/media", {
         method: "POST",
         body: JSON.stringify({
-          action: "import_link",
+          action: "import_remote_media",
           platform: form.get("platform"),
           sourceUrl: form.get("sourceUrl"),
+          sourceTitle: form.get("sourceTitle"),
+          imageUrls: form.get("imageUrls"),
+          tags: form.get("tags"),
+          availableFrom: form.get("availableFrom"),
+          rightsConfirmed: form.get("rightsConfirmed") === "true",
         }),
       });
       setImportResult(result);
+      setData(result);
       setMessage(
-        "来源链接已保存。请在外部助手完成解析后，只上传有权商业展示的素材。",
+        `已保存 ${result.import?.imported.length ?? 0} 张图片到素材库` +
+          (result.import?.skipped.length
+            ? `，跳过 ${result.import.skipped.length} 张重复素材。`
+            : "。"),
       );
-      await load();
     } catch (caught) {
       auth.setError(caught instanceof Error ? caught.message : "链接处理失败。");
     } finally {
       auth.setBusy(false);
     }
+  }
+
+  async function refreshSourcePreview(assetId: number) {
+    auth.setBusy(true);
+    auth.setError("");
+    try {
+      const result = await auth.request<MediaPayload>("/api/admin/media", {
+        method: "POST",
+        body: JSON.stringify({ action: "refresh_source_preview", assetId }),
+      });
+      setData(result);
+      setMessage("已重新读取来源页面并更新预览。");
+    } catch (caught) {
+      auth.setError(caught instanceof Error ? caught.message : "预览读取失败。");
+    } finally {
+      auth.setBusy(false);
+    }
+  }
+
+  function openParser() {
+    const helperUrl =
+      importPlatform === "tiktok"
+        ? "https://tiksave.io/zh-cn"
+        : "https://dy.kukutool.com/xiaohongshu";
+    if (importSourceUrl) {
+      void navigator.clipboard.writeText(importSourceUrl).catch(() => undefined);
+    }
+    window.open(helperUrl, "_blank", "noopener,noreferrer");
+    setMessage("已复制原始链接并打开解析助手；解析后复制图片链接，粘贴回图片地址框即可批量保存。");
   }
 
   async function upload(event: FormEvent<HTMLFormElement>) {
@@ -431,6 +469,27 @@ export default function AdminMediaPage() {
     } catch {
       return "";
     }
+  })();
+  const collectionSchedule = (() => {
+    if (!collectionSettings?.enabled) {
+      return { label: "自动任务已暂停", next: "保存启用后恢复每日检查" };
+    }
+    const latest = (data?.collectionTasks ?? []).reduce<string | null>(
+      (value, task) =>
+        !value || task.created_at > value ? task.created_at : value,
+      null,
+    );
+    if (!latest) {
+      return { label: "自动任务已启用", next: "下一次 Cloudflare 定时检查时建立首条任务" };
+    }
+    const next = new Date(latest);
+    next.setUTCDate(
+      next.getUTCDate() + Math.max(1, collectionSettings.interval_days || 3),
+    );
+    return {
+      label: "自动任务运行中",
+      next: `下次预计 ${next.toLocaleDateString("zh-CN")} 检查并轮换关键词`,
+    };
   })();
 
   return (
@@ -599,11 +658,15 @@ export default function AdminMediaPage() {
                 <p className="section-tag">SOURCE RESEARCH QUEUE</p>
                 <h2>小红书关键词采集任务</h2>
                 <p>
-                  系统按间隔自动轮换关键词并生成搜索任务。它不会抓取、下载或自动发布第三方图文；
-                  只有自有或已获商业展示授权的素材，才能通过下方来源登记与上传进入反馈素材库。
+                  Cloudflare 每天自动检查，到达间隔后轮换关键词并建立下一条任务。
+                  选定自有或已获授权的内容后，可在下方直接读取预览，或粘贴解析器给出的图片链接批量进入素材库。
                 </p>
               </div>
-              <strong>{data?.collectionTasks.filter((task) => task.status === "pending_review").length ?? 0}</strong>
+              <div className="admin-collection-status">
+                <strong>{data?.collectionTasks.filter((task) => task.status === "pending_review").length ?? 0}</strong>
+                <span>{collectionSchedule.label}</span>
+                <small>{collectionSchedule.next}</small>
+              </div>
             </div>
             <details className="admin-inline-disclosure">
               <summary>采集频率与关键词设置</summary>
@@ -670,7 +733,7 @@ export default function AdminMediaPage() {
           <section className="admin-create-panel">
             <div>
               <p className="section-tag">MANUAL UPLOAD</p>
-              <h2>上传授权素材</h2>
+              <h2>上传素材</h2>
             </div>
             <form onSubmit={upload}>
               <label><span>图片</span><input name="file" type="file" accept="image/jpeg,image/png,image/webp" required /></label>
@@ -680,29 +743,40 @@ export default function AdminMediaPage() {
               <label><span>来源链接（可选）</span><input name="sourceUrl" type="url" /></label>
               <label><span>来源平台</span><select name="sourcePlatform"><option value="manual">手动素材</option><option value="tiktok">TikTok</option><option value="xiaohongshu">小红书</option></select></label>
               <label><span>作者（可选）</span><input name="author" maxLength={100} /></label>
-              <label className="admin-checkbox"><input type="checkbox" name="rightsConfirmed" value="true" required /><span>确认拥有或已取得商业展示授权</span></label>
               <button className="admin-primary" type="submit" disabled={auth.busy}>压缩并上传</button>
             </form>
           </section>
 
-          <section className="admin-create-panel">
+          <section className="admin-create-panel admin-remote-import-panel">
             <div>
               <p className="section-tag">LINK ASSISTANT</p>
-              <h2>外部链接解析辅助</h2>
-              <p>系统记录来源；TikTok同时读取官方oEmbed信息。两家工具没有可稳定商用的公开API，因此不会在服务器模拟其私有接口。</p>
+              <h2>外链提取并保存</h2>
+              <p>
+                先尝试读取 TikTok 或小红书的公开预览；如平台限制读取，可在 KuKuTool/TikSave 解析后，
+                把“复制图片链接”的内容粘贴进来，系统会校验、去重并保存到 R2。
+              </p>
             </div>
             <form onSubmit={importLink}>
-              <label><span>平台</span><select name="platform"><option value="tiktok">TikTok</option><option value="xiaohongshu">小红书</option></select></label>
-              <label><span>原始内容链接</span><input name="sourceUrl" type="url" required /></label>
-              <button className="admin-primary" type="submit" disabled={auth.busy}>保存来源并生成助手入口</button>
+              <label><span>平台</span><select name="platform" value={importPlatform} onChange={(event) => setImportPlatform(event.target.value)}><option value="tiktok">TikTok</option><option value="xiaohongshu">小红书</option></select></label>
+              <label><span>原始内容链接</span><input name="sourceUrl" type="url" value={importSourceUrl} onChange={(event) => setImportSourceUrl(event.target.value)} required /></label>
+              <label><span>素材标题（可选）</span><input name="sourceTitle" maxLength={180} placeholder="例如：发货包装实拍" /></label>
+              <label><span>匹配标签</span><input name="tags" placeholder="packaging,catalogue,tirzepatide,US" /></label>
+              <label><span>开始使用日期</span><input name="availableFrom" type="date" min={tomorrow} defaultValue={tomorrow} required /></label>
+              <label className="admin-remote-image-links"><span>解析器图片地址（可选，每行一个，最多18张）</span><textarea name="imageUrls" rows={5} placeholder="留空会尝试读取原始页面预览；也可粘贴 KuKuTool 的“复制全部图片链接”结果。" /></label>
+              <label className="admin-checkbox admin-remote-rights"><input type="checkbox" name="rightsConfirmed" value="true" required /><span>我确认这些图片为自有素材，或已获得商业展示授权</span></label>
+              <div className="admin-storage-actions">
+                <button className="admin-primary" type="submit" disabled={auth.busy}>提取并保存到素材库</button>
+                <button className="admin-secondary" type="button" onClick={openParser}>复制原链接并打开解析器</button>
+              </div>
             </form>
             {importResult && (
               <div className="admin-import-result">
-                <strong>{importResult.source.title || importResult.source.url}</strong>
-                <p>{importResult.message}</p>
-                <a href={importResult.helperUrl} target="_blank" rel="noopener noreferrer">
-                  在 {importResult.source.platform === "tiktok" ? "TikSave" : "KuKuTool"} 打开 <span>↗</span>
-                </a>
+                <strong>本次已入库 {importResult.import?.imported.length ?? 0} 张</strong>
+                <p>
+                  请求 {importResult.import?.requestedCount ?? 0} 张 · 跳过重复 {importResult.import?.skipped.length ?? 0} 张 ·
+                  失败 {importResult.import?.failed.length ?? 0} 张
+                </p>
+                {importResult.import?.failed.slice(0, 2).map((failure) => <small key={failure.url}>{failure.message}</small>)}
               </div>
             )}
           </section>
@@ -722,8 +796,22 @@ export default function AdminMediaPage() {
           <div className="admin-media-grid">
             {visibleAssets.map((asset) => (
               <article key={asset.id}>
-                {asset.r2_key && asset.status !== "uploading" ? (
-                  <img src={`/api/media/${asset.public_id}`} alt={asset.source_title} loading="lazy" />
+                {(asset.r2_key && asset.status !== "uploading") || asset.preview_url ? (
+                  <div className="admin-media-preview-shell">
+                    <img
+                      src={asset.r2_key && asset.status !== "uploading" ? `/api/media/${asset.public_id}` : asset.preview_url}
+                      alt={asset.source_title || "素材预览"}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      onError={(event) => {
+                        event.currentTarget.hidden = true;
+                        const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
+                        if (fallback) fallback.hidden = false;
+                      }}
+                    />
+                    <div className="admin-media-placeholder" hidden>PREVIEW<br />UNAVAILABLE</div>
+                    {!asset.r2_key && <span>外链预览</span>}
+                  </div>
                 ) : (
                   <div className="admin-media-placeholder">
                     {asset.status === "uploading" ? "UPLOADING" : "SOURCE"}<br />
@@ -740,6 +828,8 @@ export default function AdminMediaPage() {
                   </div>
                   <small>{formatBytes(asset.size_bytes)} · 使用 {asset.use_count} 次 · 到期 {new Date(asset.expires_at).toLocaleDateString("zh-CN")}</small>
                   <div className="admin-feedback-controls">
+                    {asset.source_url && <a href={asset.source_url} target="_blank" rel="noopener noreferrer">查看来源 ↗</a>}
+                    {!asset.r2_key && asset.source_url && <button type="button" onClick={() => void refreshSourcePreview(asset.id)} disabled={auth.busy}>重新读取预览</button>}
                     <button type="submit" disabled={auth.busy}>保存</button>
                     <button className="admin-delete" type="button" onClick={() => void deleteAsset(asset.id)} disabled={auth.busy}>删除</button>
                   </div>

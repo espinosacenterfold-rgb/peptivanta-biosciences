@@ -1,6 +1,9 @@
 import { ensureCommunitySchema, getD1 } from "../../../../db";
 import { requireFulfillmentAdmin } from "../auth";
-import { maintainFeedbackLedger } from "../../../../lib/feedback-ledger";
+import {
+  chooseFeedbackMediaAsset,
+  maintainFeedbackLedger,
+} from "../../../../lib/feedback-ledger";
 import { noStoreJson, requireSameOrigin } from "../../../../lib/customer-auth";
 import { feedbackRiskFlags } from "../../../../lib/feedback";
 
@@ -135,11 +138,54 @@ export async function PATCH(request: Request) {
       publishedAt = null;
     } else if (body.action === "set_media") {
       mediaAssetId = body.mediaAssetId ? Number(body.mediaAssetId) : null;
+      if (mediaAssetId) {
+        const validMedia = await d1
+          .prepare(
+            `SELECT id FROM media_library_assets
+             WHERE id = ? AND status = 'approved' AND r2_key <> ''
+               AND datetime(expires_at) > CURRENT_TIMESTAMP
+             LIMIT 1`,
+          )
+          .bind(mediaAssetId)
+          .first<{ id: number }>();
+        if (!validMedia) {
+          return noStoreJson({ error: "Selected media is unavailable." }, { status: 400 });
+        }
+      }
+    } else if (body.action === "auto_match_media") {
+      let snapshot: {
+        productName?: string;
+        items?: Array<{ productName?: string }>;
+      } = {};
+      try {
+        snapshot = JSON.parse(String(before.order_snapshot_json ?? "{}")) as typeof snapshot;
+      } catch {
+        snapshot = {};
+      }
+      mediaAssetId = await chooseFeedbackMediaAsset(d1, {
+        today: new Date().toISOString().slice(0, 10),
+        countryCode: String(before.country_code ?? ""),
+        service: String(before.service ?? ""),
+        orderKind: String(before.order_kind ?? "new"),
+        productNames: [
+          snapshot.productName ?? "",
+          ...(snapshot.items ?? []).map((item) => item.productName ?? ""),
+        ],
+        seed: String(before.public_id ?? feedbackId),
+      });
+      if (!mediaAssetId) {
+        return noStoreJson(
+          { error: "素材库暂无今天可用的已审核图片。" },
+          { status: 409 },
+        );
+      }
     } else {
       return noStoreJson({ error: "Unsupported action." }, { status: 400 });
     }
     const after = { status: afterStatus, publicText, publishedAt, mediaAssetId, riskFlags };
-    await d1.batch([
+    const beforeMediaAssetId =
+      before.media_asset_id == null ? null : Number(before.media_asset_id);
+    const statements = [
       d1
         .prepare(
           `UPDATE feedback_entries SET status = ?, public_text = ?,
@@ -169,7 +215,35 @@ export async function PATCH(request: Request) {
           JSON.stringify(before),
           JSON.stringify(after),
         ),
-    ]);
+    ];
+    if (beforeMediaAssetId !== mediaAssetId) {
+      if (beforeMediaAssetId) {
+        statements.push(
+          d1
+            .prepare(
+              `UPDATE media_library_assets
+               SET use_count = MAX(0, use_count - 1),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+            )
+            .bind(beforeMediaAssetId),
+        );
+      }
+      if (mediaAssetId) {
+        statements.push(
+          d1
+            .prepare(
+              `UPDATE media_library_assets
+               SET use_count = use_count + 1,
+                   last_used_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+            )
+            .bind(mediaAssetId),
+        );
+      }
+    }
+    await d1.batch(statements);
     return noStoreJson(await feedbackPayload());
   } catch (error) {
     return noStoreJson({ error: error instanceof Error ? error.message : "Unable to update feedback." }, { status: 500 });
@@ -186,7 +260,26 @@ export async function DELETE(request: Request) {
     const id = Number(body.feedbackId);
     if (!Number.isInteger(id) || id <= 0) return noStoreJson({ error: "Invalid feedback record." }, { status: 400 });
     const d1 = await getD1();
-    await d1.prepare("DELETE FROM feedback_entries WHERE id = ?").bind(id).run();
+    const existing = await d1
+      .prepare("SELECT media_asset_id FROM feedback_entries WHERE id = ?")
+      .bind(id)
+      .first<{ media_asset_id: number | null }>();
+    const statements = [
+      d1.prepare("DELETE FROM feedback_entries WHERE id = ?").bind(id),
+    ];
+    if (existing?.media_asset_id) {
+      statements.push(
+        d1
+          .prepare(
+            `UPDATE media_library_assets
+             SET use_count = MAX(0, use_count - 1),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+          )
+          .bind(existing.media_asset_id),
+      );
+    }
+    await d1.batch(statements);
     return noStoreJson(await feedbackPayload());
   } catch (error) {
     return noStoreJson({ error: error instanceof Error ? error.message : "Unable to delete feedback." }, { status: 500 });

@@ -153,10 +153,24 @@ const generatorSettingAddedColumns = [
   },
 ] as const;
 
+const communityAddedColumns = [
+  {
+    name: "password_plaintext",
+    sql: "ALTER TABLE customers ADD COLUMN password_plaintext TEXT DEFAULT '' NOT NULL",
+  },
+] as const;
+
 const feedbackGeneratorSettingAddedColumns = [
   {
     name: "generation_interval_days",
     sql: "ALTER TABLE feedback_generator_settings ADD COLUMN generation_interval_days INTEGER DEFAULT 3 NOT NULL",
+  },
+] as const;
+
+const mediaLibraryAddedColumns = [
+  {
+    name: "preview_url",
+    sql: "ALTER TABLE media_library_assets ADD COLUMN preview_url TEXT DEFAULT '' NOT NULL",
   },
 ] as const;
 
@@ -367,6 +381,7 @@ async function initializeCommunitySchema() {
         username_normalized TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         password_salt TEXT NOT NULL,
+        password_plaintext TEXT DEFAULT '' NOT NULL,
         recovery_hash TEXT NOT NULL,
         recovery_salt TEXT NOT NULL,
         display_name TEXT DEFAULT '' NOT NULL,
@@ -436,6 +451,7 @@ async function initializeCommunitySchema() {
         status TEXT DEFAULT 'pending' NOT NULL,
         source_platform TEXT DEFAULT 'manual' NOT NULL,
         source_url TEXT DEFAULT '' NOT NULL,
+        preview_url TEXT DEFAULT '' NOT NULL,
         source_title TEXT DEFAULT '' NOT NULL,
         source_author TEXT DEFAULT '' NOT NULL,
         rights_basis TEXT DEFAULT 'owned_or_authorized' NOT NULL,
@@ -557,6 +573,19 @@ async function initializeCommunitySchema() {
     `),
   ]);
 
+  // Existing production databases predate the password_plaintext column.
+  const customerTableInfo = await d1
+    .prepare("PRAGMA table_info(customers)")
+    .all<{ name: string }>();
+  const customerColumns = new Set(
+    customerTableInfo.results.map((column) => column.name),
+  );
+  for (const column of communityAddedColumns) {
+    if (!customerColumns.has(column.name)) {
+      await d1.prepare(column.sql).run();
+    }
+  }
+
   // Existing production databases predate the interval-based feedback cadence.
   // Keep the runtime initializer additive so a normal Worker deployment can
   // upgrade the one settings table without replacing any stored feedback.
@@ -568,6 +597,21 @@ async function initializeCommunitySchema() {
   );
   for (const column of feedbackGeneratorSettingAddedColumns) {
     if (!feedbackSettingsColumns.has(column.name)) {
+      await d1.prepare(column.sql).run();
+    }
+  }
+
+  // Link-only records created by older deployments did not retain a preview
+  // candidate. Keep the upgrade additive so existing R2 objects and feedback
+  // relationships remain untouched.
+  const mediaLibraryInfo = await d1
+    .prepare("PRAGMA table_info(media_library_assets)")
+    .all<{ name: string }>();
+  const mediaLibraryColumns = new Set(
+    mediaLibraryInfo.results.map((column) => column.name),
+  );
+  for (const column of mediaLibraryAddedColumns) {
+    if (!mediaLibraryColumns.has(column.name)) {
       await d1.prepare(column.sql).run();
     }
   }

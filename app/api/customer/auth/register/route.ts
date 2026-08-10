@@ -87,10 +87,11 @@ export async function POST(request: Request) {
       .prepare(
         `INSERT INTO customers (
           public_id, username, username_normalized,
-          password_hash, password_salt, recovery_hash, recovery_salt,
+          password_hash, password_salt, password_plaintext,
+          recovery_hash, recovery_salt,
           display_name, company_name, country_code, locale, status,
           privacy_consent_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active_unlinked', ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active_unlinked', ?)`
       )
       .bind(
         publicId,
@@ -98,6 +99,7 @@ export async function POST(request: Request) {
         normalized,
         passwordCredential.hash,
         passwordCredential.salt,
+        password,
         recoveryCredential.hash,
         recoveryCredential.salt,
         (body.displayName ?? "").trim().slice(0, 80),

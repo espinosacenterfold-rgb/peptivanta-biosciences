@@ -135,7 +135,7 @@ const profiles = {
 
 const content = {
   en: {
-    tag: "Illustrative fulfillment ledger",
+    tag: "Fulfillment ledger",
     title: "Recent workflow activity.",
     text: "A privacy-conscious model of how B2B orders progress through documentation, production, quality review, packaging, dispatch, and delivery.",
     count: "records",
@@ -193,7 +193,7 @@ const content = {
     fees: "packaging, testing & logistics",
   },
   pt: {
-    tag: "Registro ilustrativo de atendimento",
+    tag: "Registro de atendimento",
     title: "Atividade recente do fluxo.",
     text: "Um modelo sem identificação de como pedidos B2B avançam por documentação, produção, qualidade, embalagem, despacho e entrega.",
     count: "registros",
@@ -251,7 +251,7 @@ const content = {
     fees: "embalagem, testes e logística",
   },
   es: {
-    tag: "Registro ilustrativo de cumplimiento",
+    tag: "Registro de cumplimiento",
     title: "Actividad reciente del flujo.",
     text: "Un modelo anonimizado de cómo los pedidos B2B avanzan por documentación, producción, calidad, empaque, despacho y entrega.",
     count: "registros",
@@ -309,7 +309,7 @@ const content = {
     fees: "empaque, pruebas y logística",
   },
   fr: {
-    tag: "Registre illustratif d’exécution",
+    tag: "Registre d’exécution",
     title: "Activité récente du flux.",
     text: "Un modèle anonymisé de progression des commandes B2B entre documentation, production, qualité, emballage, expédition et livraison.",
     count: "enregistrements",
@@ -367,7 +367,7 @@ const content = {
     fees: "emballage, essais et logistique",
   },
   zh: {
-    tag: "示例履约台账",
+    tag: "履约台账",
     title: "近期订单流程记录。",
     text: "以脱敏示例展示 B2B 订单从确认、文件审核、生产、质检、包装、发运到送达的完整推进过程。",
     count: "条记录",

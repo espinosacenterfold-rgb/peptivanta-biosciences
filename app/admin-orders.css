@@ -119,6 +119,10 @@
 .admin-customer-list code { color: var(--blue); font-size: 9px; }
 .feedback-admin-status { padding: 6px 9px; border-radius: 999px; background: #edf3f1; color: var(--ink-soft); font-size: 8px; }
 .feedback-admin-status.is-pending_review { background: rgba(255, 155, 111, 0.13); color: #994b29; }
+.admin-feedback-media-preview { min-height: 190px; margin: 18px 0 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #edf3f1; display: grid; grid-template-columns: minmax(190px,.55fr) minmax(160px,1fr); align-items: stretch; }
+.admin-feedback-media-preview img { width: 100%; height: 190px; object-fit: cover; display: block; }
+.admin-feedback-media-preview figcaption { padding: 18px; color: var(--ink-soft); display: flex; align-items: center; font-size: 10px; font-weight: 720; }
+.admin-feedback-media-empty { min-height: 74px; margin-top: 18px; border: 1px dashed var(--line); border-radius: 12px; background: #f7f9f8; color: var(--muted); display: grid; place-items: center; font-size: 9px; }
 .admin-feedback-list textarea { width: 100%; min-height: 112px; margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; resize: vertical; color: var(--ink); font: 500 12px/1.65 var(--font-body); }
 .admin-feedback-list dl,
 .admin-customer-list dl { margin: 16px 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -133,7 +137,8 @@
 
 .admin-feedback-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .admin-feedback-controls select,
-.admin-feedback-controls button { min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); cursor: pointer; font: inherit; font-size: 9px; font-weight: 720; }
+.admin-feedback-controls button,
+.admin-feedback-controls a { min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font: inherit; font-size: 9px; font-weight: 720; text-decoration: none; }
 .admin-feedback-controls button:not(.admin-delete) { border-color: var(--ink); background: var(--ink); color: white; }
 .admin-feedback-controls .admin-delete { border-color: rgba(188,55,55,.3); color: #9c2929; }
 
@@ -185,6 +190,10 @@
 .admin-cleanup-log li time { color: var(--muted); }
 
 .admin-collection-panel { margin-top: 28px; padding: 26px; border: 1px solid rgba(50,124,255,.18); border-radius: 22px; background: linear-gradient(135deg, rgba(255,255,255,.9), rgba(235,243,255,.8)); box-shadow: 0 20px 50px rgba(28,65,112,.06); }
+.admin-collection-status { min-width: 210px; display: grid; justify-items: end; gap: 4px; text-align: right; }
+.admin-collection-status strong { color: var(--ink); font: 800 clamp(28px, 4vw, 52px)/1 var(--font-display); letter-spacing: -.04em; }
+.admin-collection-status span { color: var(--blue); font-size: 9px; font-weight: 780; }
+.admin-collection-status small { max-width: 230px; color: var(--muted); font-size: 8px; line-height: 1.45; }
 .admin-collection-form { margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(50,124,255,.13); display: grid; grid-template-columns: minmax(230px,.8fr) minmax(140px,.35fr) minmax(280px,1.5fr); align-items: start; gap: 12px; }
 .admin-collection-form > label:not(.admin-checkbox) { display: grid; gap: 7px; }
 .admin-collection-form label > span { color: var(--ink); font-size: 9px; font-weight: 760; }
@@ -203,15 +212,24 @@
 .admin-media-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .admin-media-tools .admin-create-panel { margin-top: 28px; }
 .admin-media-tools .admin-create-panel form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.admin-remote-import-panel form .admin-remote-image-links,
+.admin-remote-import-panel form .admin-remote-rights,
+.admin-remote-import-panel form .admin-storage-actions { grid-column: 1 / -1; }
+.admin-remote-image-links textarea { width: 100%; min-height: 126px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); resize: vertical; font: 650 10px/1.55 var(--font-body); }
 .admin-import-result { margin-top: 20px; padding: 18px; border-radius: 14px; background: #edf3f1; }
 .admin-import-result strong { display: block; overflow-wrap: anywhere; font-size: 11px; }
 .admin-import-result p { color: var(--muted); font-size: 10px; line-height: 1.6; }
+.admin-import-result small { display: block; margin-top: 6px; color: #9c2929; font-size: 8px; overflow-wrap: anywhere; }
 .admin-import-result a { min-height: 42px; padding: 0 14px; border-radius: 10px; background: var(--ink); color: white; display: inline-flex; align-items: center; gap: 15px; font-size: 10px; font-weight: 750; }
 
 .admin-media-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .admin-media-grid article { min-width: 0; border: 1px solid var(--line); border-radius: 17px; overflow: hidden; background: white; }
 .admin-media-grid article > img,
 .admin-media-placeholder { width: 100%; height: 210px; object-fit: cover; background: #dfe8e6; display: grid; place-items: center; color: #79918e; text-align: center; font: 800 13px/1.4 Consolas, monospace; }
+.admin-media-preview-shell { position: relative; height: 210px; overflow: hidden; background: #dfe8e6; }
+.admin-media-preview-shell > img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.admin-media-preview-shell > .admin-media-placeholder { height: 100%; }
+.admin-media-preview-shell > span { position: absolute; top: 10px; right: 10px; padding: 6px 8px; border-radius: 999px; background: rgba(8,43,45,.84); color: white; font-size: 7px; font-weight: 760; letter-spacing: .03em; backdrop-filter: blur(7px); }
 .admin-media-grid form { padding: 17px; display: grid; gap: 11px; }
 .admin-media-grid label { display: grid; gap: 5px; }
 .admin-media-grid label span { color: var(--muted); font-size: 8px; font-weight: 730; text-transform: uppercase; }
@@ -1371,6 +1389,7 @@
   .admin-collection-panel { padding: 18px; }
   .admin-storage-heading { flex-direction: column; gap: 14px; }
   .admin-storage-heading > strong { font-size: 34px; }
+  .admin-collection-status { min-width: 0; justify-items: start; text-align: left; }
   .admin-storage-protect,
   .admin-storage-actions { grid-column: 1; }
   .admin-cleanup-log li { grid-template-columns: 1fr auto; }
@@ -1379,6 +1398,12 @@
   .admin-collection-tasks article { align-items: stretch; flex-direction: column; }
   .admin-collection-tasks article > div:first-child { grid-template-columns: 62px 1fr; }
   .admin-collection-tasks article time { grid-column: 1 / -1; }
+
+  .admin-feedback-media-preview { grid-template-columns: 1fr; }
+  .admin-feedback-media-preview img { height: 220px; }
+  .admin-remote-import-panel form .admin-remote-image-links,
+  .admin-remote-import-panel form .admin-remote-rights,
+  .admin-remote-import-panel form .admin-storage-actions { grid-column: 1; }
 
   .admin-feedback-list article > header,
   .admin-customer-list article > header { flex-direction: column; }

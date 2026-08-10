@@ -9,6 +9,7 @@ type CustomerRow = {
   id: number;
   public_id: string;
   username: string;
+  password_plaintext: string;
   display_name: string;
   company_name: string;
   country_code: string;
@@ -38,6 +39,15 @@ export default function AdminCustomersPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
+  const [visiblePasswords, setVisiblePasswords] = useState<Set<number>>(new Set());
+
+  function togglePassword(id: number) {
+    setVisiblePasswords((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function load() {
     setData(await auth.request<CustomerPayload>("/api/admin/customers"));
@@ -103,8 +113,8 @@ export default function AdminCustomersPage() {
 
   function exportCustomers() {
     downloadAdminCsv(`peptivanta-customers-${new Date().toISOString().slice(0, 10)}.csv`, [
-      ["客户编号", "用户名", "显示名称", "公司", "国家", "语言", "状态", "关联订单", "反馈数", "注册时间", "最后登录"],
-      ...visibleCustomers.map((customer) => [customer.public_id, customer.username, customer.display_name, customer.company_name, customer.country_code, customer.locale, statusLabels[customer.status] ?? customer.status, customer.linked_orders, customer.feedback_count, customer.created_at, customer.last_login_at]),
+      ["客户编号", "用户名", "密码", "显示名称", "公司", "国家", "语言", "状态", "关联订单", "反馈数", "注册时间", "最后登录"],
+      ...visibleCustomers.map((customer) => [customer.public_id, customer.username, customer.password_plaintext, customer.display_name, customer.company_name, customer.country_code, customer.locale, statusLabels[customer.status] ?? customer.status, customer.linked_orders, customer.feedback_count, customer.created_at, customer.last_login_at]),
     ]);
   }
 
@@ -116,6 +126,7 @@ export default function AdminCustomersPage() {
 
   return (
     <AdminPage className="admin-customers-page">
+      <style>{`.admin-password-field button { margin-left: 8px; font-size: 0.8em; } .admin-password-field { display: flex; align-items: center; gap: 4px; }`}</style>
       <AdminHeader current="客户账号" signOut={auth.signOut} />
       <section className="admin-orders-shell">
         <div className="admin-orders-intro">
@@ -152,6 +163,7 @@ export default function AdminCustomersPage() {
                 <header><div><code>{customer.public_id}</code><h3>{customer.display_name || customer.username}</h3><p>{customer.company_name || "未填写公司"} · {customer.country_code || "—"}</p></div><b className={`admin-account-status is-${customer.status}`}>{statusLabels[customer.status] ?? customer.status}</b></header>
                 <dl>
                   <div><dt>用户名</dt><dd>{customer.username}</dd></div>
+                  <div><dt>密码</dt><dd className="admin-password-field">{visiblePasswords.has(customer.id) && customer.password_plaintext ? customer.password_plaintext : "••••••••"}{customer.password_plaintext && <button type="button" onClick={() => togglePassword(customer.id)}>{visiblePasswords.has(customer.id) ? "隐藏" : "显示"}</button>}</dd></div>
                   <div><dt>关联订单</dt><dd>{customer.linked_orders}</dd></div>
                   <div><dt>反馈</dt><dd>{customer.feedback_count}</dd></div>
                   <div><dt>资料版本</dt><dd>v{customer.profile_version}</dd></div>

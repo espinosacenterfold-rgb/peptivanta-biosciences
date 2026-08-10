@@ -13,6 +13,7 @@ async function customerPayload() {
     .prepare(
       `SELECT c.id, c.public_id, c.username, c.display_name, c.company_name,
               c.country_code, c.locale, c.status, c.profile_version,
+              c.password_plaintext,
               c.created_at, c.last_login_at,
               COUNT(DISTINCT l.order_id) AS linked_orders,
               COUNT(DISTINCT f.id) AS feedback_count

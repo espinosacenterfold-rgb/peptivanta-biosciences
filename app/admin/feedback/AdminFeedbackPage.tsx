@@ -22,6 +22,8 @@ type FeedbackRow = {
   company_name?: string;
   manual_reference?: string;
   media_asset_id?: number | null;
+  media_public_id?: string | null;
+  media_title?: string | null;
 };
 type FeedbackPayload = {
   feedback: FeedbackRow[];
@@ -73,9 +75,15 @@ export default function AdminFeedbackPage() {
   async function generateNow() {
     auth.setBusy(true); auth.setError(""); setMessage("");
     try {
-      const result = await auth.request<FeedbackPayload & { generation?: { created?: number } }>("/api/admin/feedback", { method: "PATCH", body: JSON.stringify({ action: "generate_now" }) });
+      const result = await auth.request<FeedbackPayload & { generation?: { created?: number; mediaAttached?: number } }>("/api/admin/feedback", { method: "PATCH", body: JSON.stringify({ action: "generate_now" }) });
       setData(result);
-      setMessage(result.generation?.created ? "已立即补充 1 条示例服务反馈。" : "当前没有新的已交付模拟订单可生成反馈。");
+      setMessage(
+        result.generation?.created
+          ? result.generation.mediaAttached
+            ? "已补充 1 条示例服务反馈，并从素材库自动匹配图片。"
+            : "已补充 1 条示例服务反馈；素材库暂无今天可用的匹配图片。"
+          : "当前没有新的已交付模拟订单可生成反馈。",
+      );
     } catch (caught) { auth.setError(caught instanceof Error ? caught.message : "生成失败。"); }
     finally { auth.setBusy(false); }
   }
@@ -163,6 +171,18 @@ export default function AdminFeedbackPage() {
                   </div>
                   <b className={`feedback-admin-status is-${row.status}`}>{row.status}</b>
                 </header>
+                {row.media_public_id ? (
+                  <figure className="admin-feedback-media-preview">
+                    <img
+                      src={`/api/media/${encodeURIComponent(row.media_public_id)}`}
+                      alt={row.media_title || "反馈匹配素材"}
+                      loading="lazy"
+                    />
+                    <figcaption>{row.media_title || "已匹配素材库图片"}</figcaption>
+                  </figure>
+                ) : (
+                  <div className="admin-feedback-media-empty">暂未匹配图片</div>
+                )}
                 <textarea defaultValue={displayText(row)} id={`feedback-text-${row.id}`} aria-label="公开反馈文案" />
                 <dl>
                   <div><dt>市场 / 服务</dt><dd>{row.country_code} · {row.service}</dd></div>
@@ -171,10 +191,11 @@ export default function AdminFeedbackPage() {
                   <div><dt>到期</dt><dd>{new Date(row.expires_at).toLocaleDateString("zh-CN")}</dd></div>
                 </dl>
                 <div className="admin-feedback-controls">
-                  <select defaultValue={row.media_asset_id ?? ""} onChange={(event) => void action(row.id, "set_media", { mediaAssetId: event.target.value ? Number(event.target.value) : null })}>
+                  <select value={row.media_asset_id ?? ""} onChange={(event) => void action(row.id, "set_media", { mediaAssetId: event.target.value ? Number(event.target.value) : null })}>
                     <option value="">不使用图片</option>
                     {data?.media.map((asset) => <option value={asset.id} key={asset.id}>{asset.source_title || asset.public_id}</option>)}
                   </select>
+                  <button type="button" onClick={() => void action(row.id, "auto_match_media")} disabled={auth.busy}>自动匹配图片</button>
                   {row.source_type === "customer_submitted" && <button type="button" onClick={() => void action(row.id, "approve", { publicText: (document.getElementById(`feedback-text-${row.id}`) as HTMLTextAreaElement)?.value })} disabled={auth.busy}>审核并公开</button>}
                   {row.status === "approved" && <button type="button" onClick={() => void action(row.id, "unpublish")} disabled={auth.busy}>撤下</button>}
                   <button type="button" onClick={() => void action(row.id, "reject")} disabled={auth.busy}>拒绝</button>

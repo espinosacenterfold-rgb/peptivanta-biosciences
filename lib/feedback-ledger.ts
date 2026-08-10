@@ -71,6 +71,7 @@ export async function maintainFeedbackLedger(
       : Math.max(0, Math.min(2, Number(settings?.daily_maximum ?? 1)))
     : 0;
   let insertedCount = 0;
+  let mediaAttachedCount = 0;
 
   if (generationCount > 0) {
     const candidates = await d1
@@ -126,13 +127,17 @@ export async function maintainFeedbackLedger(
         productName: row.product_name,
         itemCount: Math.max(1, items.length),
       });
-      const mediaId = await chooseMediaAsset(
-        d1,
+      const mediaId = await chooseFeedbackMediaAsset(d1, {
         today,
-        destinationCode(row.destination),
-        row.service,
-        row.reference,
-      );
+        countryCode: destinationCode(row.destination),
+        service: row.service,
+        orderKind: row.order_kind,
+        productNames: [
+          row.product_name,
+          ...items.map((item) => item.productName ?? ""),
+        ],
+        seed: row.reference,
+      });
       const publicId = `fb_${randomToken(12)}`;
       const expiresAt = addDays(now, RETENTION_DAYS).toISOString();
       const snapshot = JSON.stringify({
@@ -173,6 +178,7 @@ export async function maintainFeedbackLedger(
       const changed = Number(inserted.meta.changes ?? 0);
       insertedCount += changed;
       if (mediaId && changed > 0) {
+        mediaAttachedCount += 1;
         await d1
           .prepare(
             `UPDATE media_library_assets
@@ -187,8 +193,6 @@ export async function maintainFeedbackLedger(
     }
   }
 
-  // Record only a successful insertion. An empty candidate pool is retried on
-  // the next scheduled run instead of silently postponing feedback for days.
   if (insertedCount > 0) {
     await d1
       .prepare(
@@ -202,22 +206,34 @@ export async function maintainFeedbackLedger(
   }
   return {
     created: insertedCount,
+    mediaAttached: mediaAttachedCount,
     due,
     intervalDays,
     lastSuccessfulDate: insertedCount > 0 ? today : last?.value ?? null,
   };
 }
 
-async function chooseMediaAsset(
+function mediaMatchTerms(value: string) {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9+]+/g, " ").trim();
+  return Array.from(
+    new Set([normalized.replaceAll(" ", ""), ...normalized.split(/\s+/)].filter(Boolean)),
+  );
+}
+
+export async function chooseFeedbackMediaAsset(
   d1: D1Database,
-  today: string,
-  countryCode: string,
-  service: string,
-  seed: string,
+  input: {
+    today: string;
+    countryCode: string;
+    service: string;
+    orderKind: string;
+    productNames: string[];
+    seed: string;
+  },
 ) {
   const rows = await d1
     .prepare(
-      `SELECT id, tags_json, use_count
+      `SELECT id, tags_json, source_title, use_count
        FROM media_library_assets
        WHERE status = 'approved'
          AND r2_key <> ''
@@ -226,16 +242,32 @@ async function chooseMediaAsset(
        ORDER BY use_count ASC, id DESC
        LIMIT 40`,
     )
-    .bind(today)
-    .all<{ id: number; tags_json: string; use_count: number }>();
+    .bind(input.today)
+    .all<{
+      id: number;
+      tags_json: string;
+      source_title: string;
+      use_count: number;
+    }>();
   if (rows.results.length === 0) return null;
+  const productTerms = Array.from(
+    new Set(input.productNames.flatMap(mediaMatchTerms)),
+  );
   const scored = rows.results.map((row) => {
     const tags = safeJson<string[]>(row.tags_json, []).map((tag) => tag.toLowerCase());
+    const searchable = new Set([
+      ...tags,
+      ...mediaMatchTerms(row.source_title),
+    ]);
     let score = 0;
-    if (tags.includes(countryCode.toLowerCase())) score += 3;
-    if (tags.includes(service.toLowerCase())) score += 4;
-    score -= row.use_count;
-    score += (stableNumber(`${seed}:${row.id}`) % 100) / 100;
+    if (searchable.has(input.countryCode.toLowerCase())) score += 3;
+    if (searchable.has(input.service.toLowerCase())) score += 5;
+    if (searchable.has(input.orderKind.toLowerCase())) score += 2;
+    for (const term of productTerms) {
+      if (searchable.has(term)) score += term.length >= 6 ? 8 : 2;
+    }
+    score -= Math.min(6, row.use_count * 0.35);
+    score += (stableNumber(`${input.seed}:${row.id}`) % 100) / 100;
     return { id: row.id, score };
   });
   scored.sort((left, right) => right.score - left.score);
@@ -264,6 +296,7 @@ export async function publicFeedback(params: {
   );
   const clauses = [
     "f.status = 'approved'",
+    "f.source_type IN ('customer_submitted', 'illustrative')",
     "f.published_at IS NOT NULL",
     "datetime(f.expires_at) > CURRENT_TIMESTAMP",
   ];
@@ -311,24 +344,23 @@ export async function publicFeedback(params: {
   const locale = (["en", "pt", "es", "fr", "zh"].includes(params.locale)
     ? params.locale
     : "en") as keyof ReturnType<typeof createIllustrativeFeedback>;
-  return rows.results.map((row) => {
-    const content = safeJson<Record<string, string>>(row.content_json, {});
-    return {
-      id: row.public_id,
-      sourceType: row.source_type,
-      countryCode: row.country_code,
-      service: row.service,
-      orderKind: row.order_kind,
-      locale: row.locale,
-      text:
-        row.source_type === "illustrative"
-          ? content[locale] ?? content.en ?? ""
-          : row.public_text,
-      publishedAt: row.published_at,
-      mediaUrl: row.media_public_id
-        ? `/api/media/${encodeURIComponent(row.media_public_id)}`
-        : null,
-      mediaAlt: row.media_alt ?? "",
-    };
-  });
+  return rows.results.map((row) => ({
+    id: row.public_id,
+    sourceType: row.source_type,
+    countryCode: row.country_code,
+    service: row.service,
+    orderKind: row.order_kind,
+    locale: row.locale,
+    text:
+      row.source_type === "illustrative"
+        ? safeJson<Record<string, string>>(row.content_json, {})[locale] ??
+          safeJson<Record<string, string>>(row.content_json, {}).en ??
+          ""
+        : row.public_text,
+    publishedAt: row.published_at,
+    mediaUrl: row.media_public_id
+      ? `/api/media/${encodeURIComponent(row.media_public_id)}`
+      : null,
+    mediaAlt: row.media_alt ?? "",
+  }));
 }

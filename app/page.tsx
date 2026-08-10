@@ -820,6 +820,7 @@ export default function Home() {
   const [formStatus, setFormStatus] = useState("");
   const [introState, setIntroState] = useState<IntroState>("hidden");
   const [inquiryVisible, setInquiryVisible] = useState(false);
+  const [fulfillmentCount, setFulfillmentCount] = useState(100);
   const t = copy[locale];
 
   useEffect(() => {
@@ -838,6 +839,19 @@ export default function Home() {
     }
 
     return () => window.cancelAnimationFrame(localeFrame);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/fulfillment-cases", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data: { count?: number }) => {
+        if (active) setFulfillmentCount(data.count ?? 100);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -1320,7 +1334,7 @@ export default function Home() {
             )}
           </dl>
           <Link className="company-ledger-link" href="/fulfillment">
-            <span>100</span>
+            <span>{fulfillmentCount}</span>
             <div>
               <small>{t.nav[5]}</small>
               <strong aria-hidden="true">↗</strong>

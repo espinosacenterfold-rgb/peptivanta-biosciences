@@ -101,32 +101,46 @@ test("community storage keeps secrets one-way and public feedback labelled", asy
   assert.match(migration, /feedback_entries_sample_case_idx/);
 });
 
-test("media library uses R2, delayed availability, and safe helper links", async () => {
-  const [hosting, wrangler, mediaRoute, mediaPage, worker, storage, collection, schema, migration, collectionMigration] = await Promise.all([
+test("media library uses R2, delayed availability, previews, and authorized remote imports", async () => {
+  const [hosting, wrangler, mediaRoute, mediaPage, mediaImport, feedbackLedger, feedbackRoute, feedbackAdmin, worker, storage, collection, schema, migration, collectionMigration, previewMigration] = await Promise.all([
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
     readFile(new URL("../app/api/admin/media/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/admin/media/AdminMediaPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/media-import.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/feedback-ledger.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/feedback/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/feedback/AdminFeedbackPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/media-storage.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/media-collection.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0009_tiresome_the_initiative.sql", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0010_outstanding_tyrannus.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0011_curvy_doorman.sql", import.meta.url), "utf8"),
   ]);
 
   assert.equal(JSON.parse(hosting).r2, "MEDIA");
   assert.match(wrangler, /peptivanta-feedback-media/);
   assert.match(wrangler, /17 3 \* \* \*/);
-  assert.match(mediaRoute, /https:\/\/www\.tiktok\.com\/oembed/);
   assert.match(mediaRoute, /https:\/\/tiksave\.io\/zh-cn/);
   assert.match(mediaRoute, /https:\/\/dy\.kukutool\.com\/xiaohongshu/);
+  assert.match(mediaRoute, /import_remote_media/);
+  assert.match(mediaRoute, /refresh_source_preview/);
   assert.match(mediaRoute, /owned_or_authorized/);
   assert.match(mediaRoute, /scheduledDate/);
+  assert.match(mediaImport, /https:\/\/www\.tiktok\.com\/oembed/);
+  assert.match(mediaImport, /MAX_REMOTE_IMAGES = 18/);
+  assert.match(mediaImport, /validateRemoteImageUrl/);
+  assert.match(mediaImport, /rightsConfirmed/);
+  assert.match(mediaImport, /media\.put/);
   assert.match(mediaPage, /image\/webp/);
   assert.match(mediaPage, /0\.82/);
   assert.match(mediaPage, /10GB 免费额度保护/);
   assert.match(mediaPage, /保存容量预设/);
+  assert.match(mediaPage, /外链提取并保存/);
+  assert.match(mediaPage, /preview_url/);
+  assert.match(mediaPage, /复制原链接并打开解析器/);
   assert.match(storage, /R2_FREE_STORAGE_BYTES = 10_000_000_000/);
   assert.match(storage, /DEFAULT_MEDIA_CLEANUP_TARGET_BYTES = 9_500_000_000/);
   assert.match(storage, /protect_customer_media/);
@@ -137,6 +151,7 @@ test("media library uses R2, delayed availability, and safe helper links", async
   assert.match(mediaRoute, /if \(r2Removed\)/);
   assert.match(schema, /mediaStorageSettings/);
   assert.match(schema, /mediaCleanupEvents/);
+  assert.match(schema, /previewUrl/);
   assert.match(migration, /10000000000/);
   assert.match(migration, /9500000000/);
   assert.match(worker, /cleanupExpiredMedia/);
@@ -145,4 +160,9 @@ test("media library uses R2, delayed availability, and safe helper links", async
   assert.match(collection, /does not fetch, parse, download, or republish/i);
   assert.match(collectionMigration, /media_collection_tasks/);
   assert.match(collectionMigration, /generation_interval_days/);
+  assert.match(previewMigration, /preview_url/);
+  assert.match(feedbackLedger, /chooseFeedbackMediaAsset/);
+  assert.match(feedbackLedger, /source_type IN \('customer_submitted', 'illustrative'\)/);
+  assert.match(feedbackRoute, /auto_match_media/);
+  assert.match(feedbackAdmin, /自动匹配图片/);
 });

@@ -18,6 +18,11 @@ import {
   maintainMediaCollectionTasks,
 } from "../../../../lib/media-collection";
 import { normalizeCollectionKeywords } from "../../../../lib/community-rules";
+import {
+  importRemoteMediaAssets,
+  inspectMediaSource,
+  validateMediaSourceUrl,
+} from "../../../../lib/media-import";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_UPLOAD_BYTES = 2_500_000;
@@ -50,27 +55,10 @@ function safeTags(value: string) {
   ).slice(0, 16);
 }
 
-function validateSourceUrl(input: string, requestedPlatform?: string) {
-  let url: URL;
-  try {
-    url = new URL(input);
-  } catch {
-    throw new Error("Enter a valid TikTok or Xiaohongshu URL.");
-  }
-  if (url.protocol !== "https:") throw new Error("Only HTTPS source links are accepted.");
-  const host = url.hostname.toLowerCase();
-  const tiktokHosts = new Set(["tiktok.com", "www.tiktok.com", "vm.tiktok.com", "vt.tiktok.com"]);
-  const xhsHosts = new Set(["xiaohongshu.com", "www.xiaohongshu.com", "xhslink.com"]);
-  const platform = tiktokHosts.has(host)
-    ? "tiktok"
-    : xhsHosts.has(host)
-      ? "xiaohongshu"
-      : "";
-  if (!platform || (requestedPlatform && requestedPlatform !== platform)) {
-    throw new Error("Only approved TikTok or Xiaohongshu domains are accepted.");
-  }
-  url.hash = "";
-  return { platform, url: url.toString() };
+function parserHelperUrl(platform: string) {
+  return platform === "tiktok"
+    ? "https://tiksave.io/zh-cn"
+    : "https://dy.kukutool.com/xiaohongshu";
 }
 
 async function mediaPayload() {
@@ -143,6 +131,12 @@ export async function POST(request: Request) {
         collectionKeywords?: string | string[];
         collectionTaskId?: number;
         collectionTaskStatus?: string;
+        assetId?: number;
+        imageUrls?: string | string[];
+        rightsConfirmed?: boolean;
+        availableFrom?: string;
+        tags?: string;
+        sourceTitle?: string;
       };
       if (body.action === "update_storage_settings") {
         await saveMediaStorageSettings({
@@ -215,46 +209,97 @@ export async function POST(request: Request) {
           .run();
         return noStoreJson({ ok: true, ...(await mediaPayload()) });
       }
+      if (body.action === "refresh_source_preview") {
+        const assetId = Number(body.assetId);
+        if (!Number.isInteger(assetId) || assetId <= 0) {
+          return noStoreJson({ error: "Invalid media asset." }, { status: 400 });
+        }
+        const d1 = await getD1();
+        const asset = await d1
+          .prepare(
+            `SELECT source_platform, source_url
+             FROM media_library_assets WHERE id = ? LIMIT 1`,
+          )
+          .bind(assetId)
+          .first<{ source_platform: string; source_url: string }>();
+        if (!asset?.source_url) {
+          return noStoreJson({ error: "This asset has no source link." }, { status: 400 });
+        }
+        const inspection = await inspectMediaSource(
+          asset.source_url,
+          asset.source_platform,
+        );
+        await d1
+          .prepare(
+            `UPDATE media_library_assets
+             SET preview_url = ?,
+                 source_title = CASE WHEN source_title = '' THEN ? ELSE source_title END,
+                 source_author = CASE WHEN source_author = '' THEN ? ELSE source_author END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+          )
+          .bind(
+            inspection.previewUrls[0] ?? "",
+            inspection.title,
+            inspection.author,
+            assetId,
+          )
+          .run();
+        return noStoreJson({ ok: true, inspection, ...(await mediaPayload()) });
+      }
+
+      if (body.action === "import_remote_media") {
+        const source = validateMediaSourceUrl(
+          body.sourceUrl ?? "",
+          body.platform,
+        );
+        const imported = await importRemoteMediaAssets({
+          platform: source.platform,
+          sourceUrl: source.url,
+          title: body.sourceTitle,
+          tags: body.tags,
+          availableFrom: scheduledDate(body.availableFrom ?? ""),
+          imageUrls: body.imageUrls,
+          rightsConfirmed: Boolean(body.rightsConfirmed),
+        });
+        return noStoreJson({
+          ok: true,
+          import: imported,
+          helperUrl: parserHelperUrl(source.platform),
+          ...(await mediaPayload()),
+        });
+      }
+
       if (body.action !== "import_link") {
         return noStoreJson({ error: "Unsupported action." }, { status: 400 });
       }
-      const source = validateSourceUrl(body.sourceUrl ?? "", body.platform);
-      let title = "";
-      let author = "";
-      if (source.platform === "tiktok") {
-        try {
-          const response = await fetch(
-            `https://www.tiktok.com/oembed?url=${encodeURIComponent(source.url)}`,
-            {
-              headers: { Accept: "application/json" },
-              signal: AbortSignal.timeout(4_000),
-            },
-          );
-          if (response.ok) {
-            const data = (await response.json()) as { title?: string; author_name?: string };
-            title = (data.title ?? "").slice(0, 180);
-            author = (data.author_name ?? "").slice(0, 100);
-          }
-        } catch {
-          // The source record remains useful even when oEmbed is unavailable.
-        }
+      const source = validateMediaSourceUrl(body.sourceUrl ?? "", body.platform);
+      let inspection: Awaited<ReturnType<typeof inspectMediaSource>> | null = null;
+      let inspectionError = "";
+      try {
+        inspection = await inspectMediaSource(source.url, source.platform);
+      } catch (error) {
+        inspectionError = error instanceof Error ? error.message : "Metadata unavailable.";
       }
+      const title = inspection?.title ?? "";
+      const author = inspection?.author ?? "";
       const publicId = `media_${randomToken(12)}`;
       const d1 = await getD1();
       const storageSettings = await getMediaStorageSettings();
       await d1
         .prepare(
           `INSERT INTO media_library_assets (
-            public_id, status, source_platform, source_url, source_title,
-            source_author, rights_basis, rights_confirmed_at,
+            public_id, status, source_platform, source_url, preview_url,
+            source_title, source_author, rights_basis, rights_confirmed_at,
             available_from, expires_at
-          ) VALUES (?, 'source_only', ?, ?, ?, ?, 'unconfirmed_source',
+          ) VALUES (?, 'source_only', ?, ?, ?, ?, ?, 'unconfirmed_source',
                     '', ?, ?)`,
         )
         .bind(
           publicId,
           source.platform,
           source.url,
+          inspection?.previewUrls[0] ?? "",
           title,
           author,
           tomorrowIso(),
@@ -264,12 +309,17 @@ export async function POST(request: Request) {
       return noStoreJson({
         ok: true,
         publicId,
-        source: { ...source, title, author },
-        helperUrl:
-          source.platform === "tiktok"
-            ? "https://tiksave.io/zh-cn"
-            : "https://dy.kukutool.com/xiaohongshu",
-        message: "Source saved. Open the helper, then upload only media you own or are authorized to display.",
+        source: {
+          ...source,
+          title,
+          author,
+          previewUrls: inspection?.previewUrls ?? [],
+        },
+        helperUrl: parserHelperUrl(source.platform),
+        inspectionError,
+        message: inspection?.previewUrls.length
+          ? "Source and preview saved. Confirm rights before importing image bytes."
+          : "Source saved. Open the helper and paste its copied image links to import authorized media.",
       });
     }
 
@@ -296,7 +346,7 @@ export async function POST(request: Request) {
     let sourceUrl = sourceUrlInput;
     let sourcePlatform = sourcePlatformInput;
     if (sourceUrlInput) {
-      const validated = validateSourceUrl(sourceUrlInput, sourcePlatformInput === "manual" ? undefined : sourcePlatformInput);
+      const validated = validateMediaSourceUrl(sourceUrlInput, sourcePlatformInput === "manual" ? undefined : sourcePlatformInput);
       sourceUrl = validated.url;
       sourcePlatform = validated.platform;
     } else {
