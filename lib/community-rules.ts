@@ -35,3 +35,35 @@ export function normalizeCollectionKeywords(input: unknown) {
 export function xiaohongshuSearchUrl(keyword: string) {
   return `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&source=web_explore_feed`;
 }
+
+/** Extracts unique public Xiaohongshu note URLs from search API JSON or text. */
+export function extractXiaohongshuSourceUrls(input: unknown) {
+  const text = (typeof input === "string" ? input : JSON.stringify(input ?? {}))
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\\//g, "/");
+  const matches =
+    text.match(
+      /https?:\/\/(?:www\.)?xiaohongshu\.com\/(?:explore|discovery\/item)\/[A-Za-z0-9]+[^\s"'<>]*/gi,
+    ) ?? [];
+  const urls: string[] = [];
+  for (const value of matches) {
+    try {
+      const parsed = new URL(value.replace(/[),.;\]}]+$/, ""));
+      if (
+        !["xiaohongshu.com", "www.xiaohongshu.com"].includes(
+          parsed.hostname.toLowerCase(),
+        )
+      ) {
+        continue;
+      }
+      parsed.protocol = "https:";
+      parsed.hash = "";
+      const normalized = parsed.toString();
+      if (!urls.includes(normalized)) urls.push(normalized);
+    } catch {
+      // Ignore malformed search snippets.
+    }
+    if (urls.length >= 20) break;
+  }
+  return urls;
+}

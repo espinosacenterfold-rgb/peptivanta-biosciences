@@ -8,6 +8,7 @@ import {
 } from "../lib/feedback.ts";
 import {
   feedbackGenerationDue,
+  extractXiaohongshuSourceUrls,
   normalizeCollectionKeywords,
   xiaohongshuSearchUrl,
 } from "../lib/community-rules.ts";
@@ -50,7 +51,7 @@ test("illustrative feedback uses a stable three-day cadence", () => {
   assert.equal(feedbackGenerationDue("invalid", "2026-08-09", 3), true);
 });
 
-test("Xiaohongshu collection creates research links without copying posts", () => {
+test("Xiaohongshu collection normalizes keywords and extracts content URLs", () => {
   assert.deepEqual(normalizeCollectionKeywords("多肽包装，实验室包装\n多肽包装"), [
     "多肽包装",
     "实验室包装",
@@ -58,6 +59,16 @@ test("Xiaohongshu collection creates research links without copying posts", () =
   const url = new URL(xiaohongshuSearchUrl("外贸 发货"));
   assert.equal(url.hostname, "www.xiaohongshu.com");
   assert.equal(url.searchParams.get("keyword"), "外贸 发货");
+  assert.deepEqual(
+    extractXiaohongshuSourceUrls({
+      data: [
+        { url: "https://www.xiaohongshu.com/explore/abc123?xsec_token=one" },
+        { url: "https://www.xiaohongshu.com/explore/abc123?xsec_token=one" },
+        { url: "https://example.com/not-accepted" },
+      ],
+    }),
+    ["https://www.xiaohongshu.com/explore/abc123?xsec_token=one"],
+  );
 });
 
 test("local media extraction accepts only supported sources and public image URLs", () => {
@@ -122,8 +133,8 @@ test("community storage keeps secrets one-way and public feedback labelled", asy
   assert.match(migration, /feedback_entries_sample_case_idx/);
 });
 
-test("media library keeps R2 uploads separate from authorized local link downloads", async () => {
-  const [hosting, wrangler, mediaRoute, mediaPage, mediaImport, feedbackLedger, feedbackRoute, feedbackAdmin, worker, storage, collection, schema, migration, collectionMigration, previewMigration] = await Promise.all([
+test("media library stores authorized links in R2 and automates a review queue", async () => {
+  const [hosting, wrangler, mediaRoute, mediaPage, mediaImport, feedbackLedger, feedbackRoute, feedbackAdmin, worker, storage, collection, schema, migration, collectionMigration, previewMigration, automationMigration] = await Promise.all([
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
     readFile(new URL("../app/api/admin/media/route.ts", import.meta.url), "utf8"),
@@ -139,6 +150,7 @@ test("media library keeps R2 uploads separate from authorized local link downloa
     readFile(new URL("../drizzle/0009_tiresome_the_initiative.sql", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0010_outstanding_tyrannus.sql", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0011_curvy_doorman.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0012_brainy_starfox.sql", import.meta.url), "utf8"),
   ]);
 
   assert.equal(JSON.parse(hosting).r2, "MEDIA");
@@ -146,9 +158,8 @@ test("media library keeps R2 uploads separate from authorized local link downloa
   assert.match(wrangler, /17 3 \* \* \*/);
   assert.match(mediaRoute, /https:\/\/tiksave\.io\/zh-cn/);
   assert.match(mediaRoute, /https:\/\/dy\.kukutool\.com\/xiaohongshu/);
-  assert.match(mediaRoute, /extract_remote_media/);
-  assert.match(mediaRoute, /download_remote_image/);
-  assert.match(mediaRoute, /Content-Disposition/);
+  assert.match(mediaRoute, /import_remote_media/);
+  assert.match(mediaRoute, /importRemoteMediaAssets/);
   assert.match(mediaRoute, /delete_collection_task/);
   assert.match(mediaRoute, /refresh_source_preview/);
   assert.match(mediaRoute, /owned_or_authorized/);
@@ -159,15 +170,17 @@ test("media library keeps R2 uploads separate from authorized local link downloa
   assert.match(mediaImport, /rightsConfirmed/);
   assert.match(mediaImport, /resolveRemoteMediaAssets/);
   assert.match(mediaImport, /downloadRemoteImage/);
-  assert.doesNotMatch(mediaImport, /media\.put|media_library_assets/);
+  assert.match(mediaImport, /media\.put/);
+  assert.match(mediaImport, /media_library_assets/);
+  assert.match(mediaImport, /pending_source_review/);
   assert.match(mediaPage, /image\/webp/);
   assert.match(mediaPage, /0\.82/);
   assert.match(mediaPage, /10GB 免费额度保护/);
   assert.match(mediaPage, /保存容量预设/);
-  assert.match(mediaPage, /外链提取并保存到本地/);
-  assert.match(mediaPage, /提取并下载到电脑/);
+  assert.match(mediaPage, /外链提取并保存到 R2/);
+  assert.match(mediaPage, /提取并写入 R2/);
   assert.match(mediaPage, /删除任务/);
-  assert.doesNotMatch(mediaPage, /提取并保存到素材库/);
+  assert.match(mediaPage, /小红书关键词自动采集/);
   assert.match(mediaPage, /preview_url/);
   assert.match(mediaPage, /复制原链接并打开解析器/);
   assert.match(storage, /R2_FREE_STORAGE_BYTES = 10_000_000_000/);
@@ -186,10 +199,15 @@ test("media library keeps R2 uploads separate from authorized local link downloa
   assert.match(worker, /cleanupExpiredMedia/);
   assert.match(worker, /cleanupExpiredCustomerAuth/);
   assert.match(worker, /maintainMediaCollectionTasks/);
-  assert.match(collection, /does not fetch, parse, download, or republish/i);
+  assert.match(collection, /https:\/\/s\.jina\.ai/);
+  assert.match(collection, /importDiscoveredMediaAssets/);
+  assert.match(collection, /retryMediaCollectionTask/);
+  assert.match(collection, /needs_configuration/);
   assert.match(collectionMigration, /media_collection_tasks/);
   assert.match(collectionMigration, /generation_interval_days/);
   assert.match(previewMigration, /preview_url/);
+  assert.match(automationMigration, /auto_import_limit/);
+  assert.match(automationMigration, /result_count/);
   assert.match(feedbackLedger, /chooseFeedbackMediaAsset/);
   assert.match(feedbackLedger, /source_type IN \('customer_submitted', 'illustrative'\)/);
   assert.match(feedbackRoute, /auto_match_media/);

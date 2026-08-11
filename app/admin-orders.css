@@ -207,7 +207,9 @@
 .admin-collection-tasks article > div:first-child span { color: var(--blue); font-size: 8px; font-weight: 760; }
 .admin-collection-tasks article > div:first-child strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .admin-collection-tasks article time { color: var(--muted); font-size: 8px; }
+.admin-collection-result { grid-column: 2 / -1; overflow: hidden; color: var(--muted); font-size: 8px; line-height: 1.5; text-overflow: ellipsis; }
 .admin-collection-tasks .admin-feedback-controls a { min-height: 40px; padding: 0 12px; border: 1px solid var(--ink); border-radius: 10px; background: var(--ink); color: white; display: inline-flex; align-items: center; font-size: 9px; font-weight: 720; }
+.admin-media-rights-review { padding: 10px 12px; border: 1px solid rgba(236, 155, 30, .32); border-radius: 10px; background: rgba(255, 244, 218, .72); }
 
 .admin-media-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .admin-media-tools .admin-create-panel { margin-top: 28px; }
@@ -1400,6 +1402,7 @@
   .admin-collection-tasks article { align-items: stretch; flex-direction: column; }
   .admin-collection-tasks article > div:first-child { grid-template-columns: 62px 1fr; }
   .admin-collection-tasks article time { grid-column: 1 / -1; }
+  .admin-collection-result { grid-column: 1 / -1; }
 
   .admin-feedback-media-preview { grid-template-columns: 1fr; }
   .admin-feedback-media-preview img { height: 220px; }

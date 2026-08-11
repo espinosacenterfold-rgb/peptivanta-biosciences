@@ -174,6 +174,40 @@ const mediaLibraryAddedColumns = [
   },
 ] as const;
 
+const mediaCollectionSettingAddedColumns = [
+  {
+    name: "auto_import_limit",
+    sql: "ALTER TABLE media_collection_settings ADD COLUMN auto_import_limit INTEGER DEFAULT 3 NOT NULL",
+  },
+] as const;
+
+const mediaCollectionTaskAddedColumns = [
+  {
+    name: "provider",
+    sql: "ALTER TABLE media_collection_tasks ADD COLUMN provider TEXT DEFAULT 'jina' NOT NULL",
+  },
+  {
+    name: "result_count",
+    sql: "ALTER TABLE media_collection_tasks ADD COLUMN result_count INTEGER DEFAULT 0 NOT NULL",
+  },
+  {
+    name: "asset_count",
+    sql: "ALTER TABLE media_collection_tasks ADD COLUMN asset_count INTEGER DEFAULT 0 NOT NULL",
+  },
+  {
+    name: "error_message",
+    sql: "ALTER TABLE media_collection_tasks ADD COLUMN error_message TEXT DEFAULT '' NOT NULL",
+  },
+  {
+    name: "started_at",
+    sql: "ALTER TABLE media_collection_tasks ADD COLUMN started_at TEXT",
+  },
+  {
+    name: "finished_at",
+    sql: "ALTER TABLE media_collection_tasks ADD COLUMN finished_at TEXT",
+  },
+] as const;
+
 let fulfillmentSchemaPromise: Promise<void> | null = null;
 let communitySchemaPromise: Promise<void> | null = null;
 
@@ -498,6 +532,7 @@ async function initializeCommunitySchema() {
         enabled INTEGER DEFAULT 1 NOT NULL,
         interval_days INTEGER DEFAULT 3 NOT NULL,
         keywords_json TEXT DEFAULT '["多肽包装","实验室产品包装","外贸发货包装","COA检测报告"]' NOT NULL,
+        auto_import_limit INTEGER DEFAULT 3 NOT NULL,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
       )
     `),
@@ -508,7 +543,13 @@ async function initializeCommunitySchema() {
         platform TEXT DEFAULT 'xiaohongshu' NOT NULL,
         keyword TEXT NOT NULL,
         search_url TEXT NOT NULL,
-        status TEXT DEFAULT 'pending_review' NOT NULL,
+        status TEXT DEFAULT 'queued' NOT NULL,
+        provider TEXT DEFAULT 'jina' NOT NULL,
+        result_count INTEGER DEFAULT 0 NOT NULL,
+        asset_count INTEGER DEFAULT 0 NOT NULL,
+        error_message TEXT DEFAULT '' NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
         reviewed_at TEXT
       )
@@ -616,6 +657,30 @@ async function initializeCommunitySchema() {
     }
   }
 
+  const mediaCollectionSettingsInfo = await d1
+    .prepare("PRAGMA table_info(media_collection_settings)")
+    .all<{ name: string }>();
+  const mediaCollectionSettingsColumns = new Set(
+    mediaCollectionSettingsInfo.results.map((column) => column.name),
+  );
+  for (const column of mediaCollectionSettingAddedColumns) {
+    if (!mediaCollectionSettingsColumns.has(column.name)) {
+      await d1.prepare(column.sql).run();
+    }
+  }
+
+  const mediaCollectionTasksInfo = await d1
+    .prepare("PRAGMA table_info(media_collection_tasks)")
+    .all<{ name: string }>();
+  const mediaCollectionTasksColumns = new Set(
+    mediaCollectionTasksInfo.results.map((column) => column.name),
+  );
+  for (const column of mediaCollectionTaskAddedColumns) {
+    if (!mediaCollectionTasksColumns.has(column.name)) {
+      await d1.prepare(column.sql).run();
+    }
+  }
+
   await d1.batch([
     d1.prepare("CREATE INDEX IF NOT EXISTS customers_status_idx ON customers (status)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS customer_sessions_customer_id_idx ON customer_sessions (customer_id)"),
@@ -641,10 +706,11 @@ async function initializeCommunitySchema() {
     `),
     d1.prepare(`
       INSERT INTO media_collection_settings (
-        id, enabled, interval_days, keywords_json
+        id, enabled, interval_days, keywords_json, auto_import_limit
       ) VALUES (
         1, 1, 3,
-        '["多肽包装","实验室产品包装","外贸发货包装","COA检测报告"]'
+        '["多肽包装","实验室产品包装","外贸发货包装","COA检测报告"]',
+        3
       )
       ON CONFLICT(id) DO NOTHING
     `),

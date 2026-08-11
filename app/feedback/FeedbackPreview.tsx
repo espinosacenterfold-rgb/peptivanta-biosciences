@@ -6,11 +6,11 @@ import type { SiteLocale } from "../i18n";
 import FeedbackCard, { type PublicFeedbackRecord } from "./FeedbackCard";
 
 const copy = {
-en: { tag: "Buyer feedback", title: "Recent service feedback.", text: "A small selection of reviewed customer submissions.", all: "View all feedback", empty: "Feedback is being prepared." },
-  pt: { tag: "Feedback de compradores", title: "Feedback recente de serviço.", text: "Uma seleção de opiniões revisadas de clientes.", all: "Ver todo o feedback", empty: "O feedback está sendo preparado." },
-  es: { tag: "Opiniones de compradores", title: "Comentarios recientes del servicio.", text: "Una selección de comentarios revisados de clientes.", all: "Ver todos los comentarios", empty: "Los comentarios se están preparando." },
-  fr: { tag: "Avis des acheteurs", title: "Retours récents sur le service.", text: "Une sélection de retours vérifiés de clients.", all: "Voir tous les avis", empty: "Les avis sont en cours de préparation." },
-  zh: { tag: "采购反馈", title: "近期服务反馈。", text: "展示经审核的客户提交内容。", all: "查看全部反馈", empty: "反馈内容正在整理中。" },
+  en: { tag: "Buyer feedback", title: "Recent service reviews", all: "View all feedback", empty: "Feedback is being prepared." },
+  pt: { tag: "Feedback de compradores", title: "Avaliações recentes do serviço", all: "Ver todo o feedback", empty: "O feedback está sendo preparado." },
+  es: { tag: "Opiniones de compradores", title: "Reseñas recientes del servicio", all: "Ver todos los comentarios", empty: "Los comentarios se están preparando." },
+  fr: { tag: "Avis des acheteurs", title: "Avis récents sur le service", all: "Voir tous les avis", empty: "Les avis sont en cours de préparation." },
+  zh: { tag: "采购反馈", title: "近期服务评价", all: "查看全部反馈", empty: "反馈内容正在整理中。" },
 } as const;
 
 export default function FeedbackPreview({ locale }: { locale: SiteLocale }) {
@@ -39,7 +39,6 @@ export default function FeedbackPreview({ locale }: { locale: SiteLocale }) {
         <div>
           <p className="section-tag">{t.tag}</p>
           <h2 id="feedback-preview-title">{t.title}</h2>
-          <p>{t.text}</p>
         </div>
         <Link href="/feedback">{t.all}<span aria-hidden="true">↗</span></Link>
       </div>

@@ -28,6 +28,8 @@ type MediaAsset = {
   available_from: string;
   expires_at: string;
   use_count: number;
+  rights_basis: string;
+  rights_confirmed_at: string;
 };
 
 type MediaCleanupEvent = {
@@ -62,6 +64,7 @@ type MediaCollectionSettings = {
   enabled: number;
   interval_days: number;
   keywords_json: string;
+  auto_import_limit: number;
   updated_at: string;
 };
 
@@ -72,6 +75,12 @@ type MediaCollectionTask = {
   keyword: string;
   search_url: string;
   status: string;
+  provider: string;
+  result_count: number;
+  asset_count: number;
+  error_message: string;
+  started_at: string | null;
+  finished_at: string | null;
   created_at: string;
   reviewed_at: string | null;
 };
@@ -82,19 +91,20 @@ type MediaPayload = {
   storage: MediaStorage;
   collectionSettings: MediaCollectionSettings;
   collectionTasks: MediaCollectionTask[];
+  collectionProvider: {
+    provider: string;
+    configured: boolean;
+  };
 };
 
 type ImportResult = {
   helperUrl: string;
-  extraction: {
-    imageUrls: string[];
-    inspection: {
-      title: string;
-      author: string;
-    } | null;
+  import: {
+    requestedCount: number;
+    imported: Array<{ publicId: string; title: string; status: string }>;
+    skipped: string[];
+    failed: Array<{ url: string; message: string }>;
   };
-  downloadedCount?: number;
-  failed?: Array<{ url: string; message: string }>;
 };
 
 const DECIMAL_GB = 1_000_000_000;
@@ -114,6 +124,21 @@ function cleanupReason(reason: string) {
     manual_delete: "手动删除",
   };
   return labels[reason] ?? reason;
+}
+
+function collectionStatus(status: string) {
+  const labels: Record<string, string> = {
+    queued: "等待执行",
+    running: "采集中",
+    completed: "已入待审核库",
+    no_results: "未发现结果",
+    no_assets: "未提取到图片",
+    needs_configuration: "等待搜索密钥",
+    failed: "执行失败",
+    pending_review: "旧版待处理",
+    skipped: "已跳过",
+  };
+  return labels[status] ?? status;
 }
 
 /**
@@ -264,10 +289,11 @@ export default function AdminMediaPage() {
             collectionEnabled: form.get("collectionEnabled") === "true",
             collectionIntervalDays: Number(form.get("collectionIntervalDays")),
             collectionKeywords: String(form.get("collectionKeywords") ?? ""),
+            collectionAutoImportLimit: Number(form.get("collectionAutoImportLimit")),
           }),
         }),
       );
-      setMessage("关键词采集任务设置已保存。系统只生成待处理任务，不会复制或发布第三方内容。");
+      setMessage("自动采集设置已保存。到期后将搜索、去重并把图片写入 R2 待审核区。");
     } catch (caught) {
       auth.setError(caught instanceof Error ? caught.message : "保存失败。");
     } finally {
@@ -285,7 +311,7 @@ export default function AdminMediaPage() {
           body: JSON.stringify({ action: "create_collection_task_now" }),
         }),
       );
-      setMessage("已生成一条新的小红书关键词采集任务。");
+      setMessage("已立即执行一轮小红书关键词自动采集，请查看任务结果。");
     } catch (caught) {
       auth.setError(caught instanceof Error ? caught.message : "生成任务失败。");
     } finally {
@@ -337,7 +363,28 @@ export default function AdminMediaPage() {
     }
   }
 
-  async function downloadExternalMedia(event: FormEvent<HTMLFormElement>) {
+  async function retryCollectionTask(id: number) {
+    auth.setBusy(true);
+    auth.setError("");
+    try {
+      setData(
+        await auth.request<MediaPayload>("/api/admin/media", {
+          method: "POST",
+          body: JSON.stringify({
+            action: "retry_collection_task",
+            collectionTaskId: id,
+          }),
+        }),
+      );
+      setMessage("该关键词已重新执行自动搜索、提取和 R2 待审核入库。");
+    } catch (caught) {
+      auth.setError(caught instanceof Error ? caught.message : "重试任务失败。");
+    } finally {
+      auth.setBusy(false);
+    }
+  }
+
+  async function importLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const platform = String(form.get("platform") ?? "xiaohongshu");
@@ -347,62 +394,28 @@ export default function AdminMediaPage() {
     auth.setError("");
     setImportResult(null);
     try {
-      const result = await auth.request<ImportResult>("/api/admin/media", {
+      const result = await auth.request<ImportResult & MediaPayload>("/api/admin/media", {
         method: "POST",
         body: JSON.stringify({
-          action: "extract_remote_media",
+          action: "import_remote_media",
           platform,
           sourceUrl,
+          sourceTitle: form.get("sourceTitle"),
+          tags: form.get("tags"),
+          availableFrom: form.get("availableFrom"),
           imageUrls: form.get("imageUrls"),
           rightsConfirmed,
         }),
       });
-      let downloadedCount = 0;
-      const failed: Array<{ url: string; message: string }> = [];
-      for (const [index, imageUrl] of result.extraction.imageUrls.entries()) {
-        const response = await fetch("/api/admin/media", {
-          method: "POST",
-          cache: "no-store",
-          headers: {
-            Authorization: `Bearer ${auth.adminKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "download_remote_image",
-            platform,
-            sourceUrl,
-            imageUrl,
-            imageIndex: index + 1,
-            rightsConfirmed,
-          }),
-        });
-        if (!response.ok) {
-          const error = (await response.json().catch(() => ({}))) as { error?: string };
-          failed.push({ url: imageUrl, message: error.error ?? "下载失败。" });
-          continue;
-        }
-        const blob = await response.blob();
-        const disposition = response.headers.get("content-disposition") ?? "";
-        const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `media-${index + 1}.jpg`;
-        const objectUrl = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = objectUrl;
-        anchor.download = filename;
-        anchor.hidden = true;
-        document.body.append(anchor);
-        anchor.click();
-        anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
-        downloadedCount += 1;
-        await new Promise((resolve) => window.setTimeout(resolve, 120));
-      }
-      setImportResult({ ...result, downloadedCount, failed });
+      setData(result);
+      setImportResult(result);
       setMessage(
-        `已提取 ${result.extraction.imageUrls.length} 张，向本地下载 ${downloadedCount} 张` +
-          (failed.length ? `，失败 ${failed.length} 张。` : "。"),
+        `已写入 R2 ${result.import.imported.length} 张` +
+          (result.import.skipped.length ? `，跳过重复 ${result.import.skipped.length} 张` : "") +
+          (result.import.failed.length ? `，失败 ${result.import.failed.length} 张。` : "。"),
       );
     } catch (caught) {
-      auth.setError(caught instanceof Error ? caught.message : "提取或下载失败。");
+      auth.setError(caught instanceof Error ? caught.message : "提取或保存失败。");
     } finally {
       auth.setBusy(false);
     }
@@ -434,7 +447,7 @@ export default function AdminMediaPage() {
       void navigator.clipboard.writeText(importSourceUrl).catch(() => undefined);
     }
     window.open(helperUrl, "_blank", "noopener,noreferrer");
-    setMessage("已复制原始链接并打开解析助手；解析后复制图片链接，粘贴回图片地址框即可批量保存。");
+    setMessage("已复制原始链接并打开解析助手；解析后复制图片链接，粘贴回图片地址框即可批量写入 R2。");
   }
 
   async function upload(event: FormEvent<HTMLFormElement>) {
@@ -487,6 +500,7 @@ export default function AdminMediaPage() {
             availableFrom: form.get("availableFrom"),
             tags: form.get("tags"),
             title: form.get("title"),
+            rightsConfirmed: form.get("rightsConfirmed") === "true",
           }),
         }),
       );
@@ -524,6 +538,7 @@ export default function AdminMediaPage() {
   const storage = data?.storage;
   const settings = storage?.settings;
   const collectionSettings = data?.collectionSettings;
+  const collectionProvider = data?.collectionProvider;
   const collectionKeywords = (() => {
     try {
       return (JSON.parse(collectionSettings?.keywords_json ?? "[]") as string[]).join("，");
@@ -532,8 +547,14 @@ export default function AdminMediaPage() {
     }
   })();
   const collectionSchedule = (() => {
+    if (collectionProvider && !collectionProvider.configured) {
+      return {
+        label: "自动搜索等待配置",
+        next: "在 Cloudflare Secret 中配置 JINA_API_KEY 后即可真正自动运行",
+      };
+    }
     if (!collectionSettings?.enabled) {
-      return { label: "定时生成已暂停", next: "保存启用后恢复每日检查" };
+      return { label: "自动采集已暂停", next: "保存启用后恢复每日检查" };
     }
     const latest = (data?.collectionTasks ?? []).reduce<string | null>(
       (value, task) =>
@@ -541,15 +562,15 @@ export default function AdminMediaPage() {
       null,
     );
     if (!latest) {
-      return { label: "定时生成已启用", next: "下一次 Cloudflare 定时检查时建立首条任务" };
+      return { label: "自动采集已启用", next: "下一次 Cloudflare 定时检查时执行首轮采集" };
     }
     const next = new Date(latest);
     next.setUTCDate(
       next.getUTCDate() + Math.max(1, collectionSettings.interval_days || 3),
     );
     return {
-      label: "定时生成运行中",
-      next: `下次预计 ${next.toLocaleDateString("zh-CN")} 检查并轮换关键词`,
+      label: "自动采集运行中",
+      next: `下次预计 ${next.toLocaleDateString("zh-CN")} 搜索、提取并入 R2 待审核库`,
     };
   })();
 
@@ -717,14 +738,14 @@ export default function AdminMediaPage() {
             <div className="admin-storage-heading">
               <div>
                 <p className="section-tag">SOURCE RESEARCH QUEUE</p>
-                <h2>小红书关键词任务清单</h2>
+                <h2>小红书关键词自动采集</h2>
                 <p>
-                  这里只定时生成关键词搜索清单，不会自动抓取小红书内容。
-                  打开搜索并选定内容后，可使用下方工具把解析到的图片下载到当前电脑。
+                  Cloudflare 到期后会自动搜索关键词、解析公开内容、去重，并把图片写入 R2 待审核区。
+                  自动采集素材不会直接公开；确认商业展示授权并设为“可用”后，客户反馈页才会显示。
                 </p>
               </div>
               <div className="admin-collection-status">
-                <strong>{data?.collectionTasks.filter((task) => task.status === "pending_review").length ?? 0}</strong>
+                <strong>{data?.assets.filter((asset) => asset.status === "pending" && asset.rights_basis === "pending_source_review").length ?? 0}</strong>
                 <span>{collectionSchedule.label}</span>
                 <small>{collectionSchedule.next}</small>
               </div>
@@ -739,7 +760,7 @@ export default function AdminMediaPage() {
                   value="true"
                   defaultChecked={Boolean(collectionSettings.enabled)}
                 />
-                <span>启用定时生成关键词任务</span>
+                  <span>启用定时自动搜索与采集</span>
               </label>
               <label>
                 <span>任务间隔（天）</span>
@@ -761,27 +782,42 @@ export default function AdminMediaPage() {
                   required
                 />
               </label>
+              <label>
+                <span>每轮最多写入 R2（张）</span>
+                <input
+                  name="collectionAutoImportLimit"
+                  type="number"
+                  min="1"
+                  max="8"
+                  defaultValue={collectionSettings.auto_import_limit || 3}
+                  required
+                />
+              </label>
               <div className="admin-storage-actions">
                 <button className="admin-primary" type="submit" disabled={auth.busy}>保存采集规则</button>
-                <button className="admin-secondary" type="button" onClick={() => void createCollectionTaskNow()} disabled={auth.busy}>立即生成任务</button>
+                <button className="admin-secondary" type="button" onClick={() => void createCollectionTaskNow()} disabled={auth.busy}>立即执行一轮</button>
               </div>
               </form>
             </details>
             <div className="admin-collection-tasks">
               {(data?.collectionTasks ?? []).length === 0 ? (
-                <p>尚无采集任务。保存启用规则后会自动生成首条任务。</p>
+                <p>尚无采集记录。保存并启用规则后，定时任务会执行首轮自动采集。</p>
               ) : (
                 data?.collectionTasks.slice(0, 12).map((task) => (
                   <article key={task.id}>
                     <div>
-                      <span>{task.status === "pending_review" ? "待处理" : task.status === "completed" ? "已处理" : "已跳过"}</span>
+                      <span>{collectionStatus(task.status)}</span>
                       <strong>{task.keyword}</strong>
                       <time>{new Date(task.created_at).toLocaleString("zh-CN")}</time>
+                      <small className="admin-collection-result">
+                        发现 {task.result_count || 0} 条 · 写入 R2 {task.asset_count || 0} 张
+                        {task.error_message ? ` · ${task.error_message}` : ""}
+                      </small>
                     </div>
                     <div className="admin-feedback-controls">
                       <a href={task.search_url} target="_blank" rel="noopener noreferrer">打开小红书搜索 ↗</a>
-                      {task.status === "pending_review" && <button type="button" onClick={() => void updateCollectionTask(task.id, "completed")} disabled={auth.busy}>标记已处理</button>}
-                      {task.status === "pending_review" && <button className="admin-delete" type="button" onClick={() => void updateCollectionTask(task.id, "skipped")} disabled={auth.busy}>跳过</button>}
+                      {task.status !== "running" && task.status !== "queued" && <button type="button" onClick={() => void retryCollectionTask(task.id)} disabled={auth.busy}>重新执行</button>}
+                      {task.status === "pending_review" && <button className="admin-delete" type="button" onClick={() => void updateCollectionTask(task.id, "skipped")} disabled={auth.busy}>跳过旧任务</button>}
                       <button className="admin-delete" type="button" onClick={() => void deleteCollectionTask(task.id)} disabled={auth.busy}>删除任务</button>
                     </div>
                   </article>
@@ -812,34 +848,33 @@ export default function AdminMediaPage() {
           <section className="admin-create-panel admin-remote-import-panel">
             <div>
               <p className="section-tag">LINK ASSISTANT</p>
-              <h2>外链提取并保存到本地</h2>
+              <h2>外链提取并保存到 R2</h2>
               <p>
                 先尝试读取 TikTok 或小红书的公开预览；如平台限制读取，可在 KuKuTool/TikSave 解析后，
-                把“复制图片链接”的内容粘贴进来。图片只下载到当前电脑，不写入 R2 素材库。
+                把“复制图片链接”的内容粘贴进来。系统会校验、去重并写入 R2 素材库，供审核后的反馈使用。
               </p>
             </div>
-            <form onSubmit={downloadExternalMedia}>
+            <form onSubmit={importLink}>
               <label><span>平台</span><select name="platform" value={importPlatform} onChange={(event) => setImportPlatform(event.target.value)}><option value="tiktok">TikTok</option><option value="xiaohongshu">小红书</option></select></label>
               <label><span>原始内容链接</span><input name="sourceUrl" type="url" value={importSourceUrl} onChange={(event) => setImportSourceUrl(event.target.value)} required /></label>
+              <label><span>素材标题（可选）</span><input name="sourceTitle" maxLength={180} placeholder="例如：发货包装实拍" /></label>
+              <label><span>匹配标签</span><input name="tags" placeholder="packaging,catalogue,tirzepatide,US" /></label>
+              <label><span>开始使用日期</span><input name="availableFrom" type="date" min={tomorrow} defaultValue={tomorrow} required /></label>
               <label className="admin-remote-image-links"><span>解析器图片地址（可选，每行一个，最多18张）</span><textarea name="imageUrls" rows={5} placeholder="留空会尝试读取原始页面预览；也可粘贴 KuKuTool 的“复制全部图片链接”结果。" /></label>
-              <label className="admin-checkbox admin-remote-rights"><input type="checkbox" name="rightsConfirmed" value="true" required /><span>我确认有权下载和使用这些图片</span></label>
+              <label className="admin-checkbox admin-remote-rights"><input type="checkbox" name="rightsConfirmed" value="true" required /><span>我确认这些图片为自有素材，或已获得商业展示授权</span></label>
               <div className="admin-storage-actions">
-                <button className="admin-primary" type="submit" disabled={auth.busy}>提取并下载到电脑</button>
+                <button className="admin-primary" type="submit" disabled={auth.busy}>提取并写入 R2</button>
                 <button className="admin-secondary" type="button" onClick={openParser}>复制原链接并打开解析器</button>
               </div>
             </form>
             {importResult && (
               <div className="admin-import-result">
-                <strong>已提取 {importResult.extraction.imageUrls.length} 张，已下载 {importResult.downloadedCount ?? 0} 张</strong>
+                <strong>本次已写入 R2 {importResult.import.imported.length} 张</strong>
                 <p>
-                  文件只保存到当前电脑；浏览器首次批量下载时可能会询问是否允许多个文件。
+                  请求 {importResult.import.requestedCount} 张 · 跳过重复 {importResult.import.skipped.length} 张 ·
+                  失败 {importResult.import.failed.length} 张
                 </p>
-                <div className="admin-local-download-preview">
-                  {importResult.extraction.imageUrls.slice(0, 8).map((url, index) => (
-                    <img src={url} alt={`已提取图片 ${index + 1}`} referrerPolicy="no-referrer" loading="lazy" key={url} />
-                  ))}
-                </div>
-                {importResult.failed?.slice(0, 2).map((failure) => <small key={failure.url}>{failure.message}</small>)}
+                {importResult.import.failed.slice(0, 2).map((failure) => <small key={failure.url}>{failure.message}</small>)}
               </div>
             )}
           </section>
@@ -862,7 +897,7 @@ export default function AdminMediaPage() {
                 {(asset.r2_key && asset.status !== "uploading") || asset.preview_url ? (
                   <div className="admin-media-preview-shell">
                     <img
-                      src={asset.r2_key && asset.status !== "uploading" ? `/api/media/${asset.public_id}` : asset.preview_url}
+                      src={asset.r2_key && asset.status === "approved" ? `/api/media/${asset.public_id}` : asset.preview_url}
                       alt={asset.source_title || "素材预览"}
                       loading="lazy"
                       referrerPolicy="no-referrer"
@@ -889,6 +924,12 @@ export default function AdminMediaPage() {
                     <label><span>可用日期</span><input name="availableFrom" type="date" defaultValue={asset.available_from} /></label>
                     <label><span>状态</span><select name="status" defaultValue={asset.status === "source_only" || asset.status === "uploading" ? "pending" : asset.status}><option value="approved">可用</option><option value="scheduled">排期</option><option value="pending">待处理</option><option value="rejected">停用</option></select></label>
                   </div>
+                  {asset.rights_basis === "pending_source_review" && !asset.rights_confirmed_at && (
+                    <label className="admin-checkbox admin-media-rights-review">
+                      <input type="checkbox" name="rightsConfirmed" value="true" />
+                      <span>我已核对来源，并确认拥有商业展示授权</span>
+                    </label>
+                  )}
                   <small>{formatBytes(asset.size_bytes)} · 使用 {asset.use_count} 次 · 到期 {new Date(asset.expires_at).toLocaleDateString("zh-CN")}</small>
                   <div className="admin-feedback-controls">
                     {asset.source_url && <a href={asset.source_url} target="_blank" rel="noopener noreferrer">查看来源 ↗</a>}

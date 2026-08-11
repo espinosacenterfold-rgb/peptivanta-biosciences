@@ -99,7 +99,7 @@ test("includes complete multilingual ledger content", async () => {
   assert.match(ledger, /已送达/);
   assert.match(fulfillmentPage, /返回网站/);
   assert.match(fulfillmentPage, /FulfillmentCases/);
-  assert.doesNotMatch(fulfillmentPage, /FeedbackPreview|示例服务反馈/);
+  assert.match(fulfillmentPage, /FeedbackPreview/);
   assert.match(homepage, /前往 WhatsApp 获取报价/);
   assert.match(legalDocument, /隐私政策/);
   assert.match(legalDocument, /Política de Privacidad/);

@@ -16,13 +16,13 @@ import {
 } from "../../../../lib/media-storage";
 import {
   maintainMediaCollectionTasks,
+  mediaCollectionProviderStatus,
+  retryMediaCollectionTask,
 } from "../../../../lib/media-collection";
 import { normalizeCollectionKeywords } from "../../../../lib/community-rules";
 import {
-  downloadRemoteImage,
-  extensionForMime as remoteExtensionForMime,
+  importRemoteMediaAssets,
   inspectMediaSource,
-  resolveRemoteMediaAssets,
   validateMediaSourceUrl,
 } from "../../../../lib/media-import";
 
@@ -52,7 +52,7 @@ function safeTags(value: string) {
       value
         .split(",")
         .map((tag) => tag.trim().toLowerCase())
-        .filter((tag) => /^[a-z0-9_-]{1,30}$/.test(tag)),
+        .filter((tag) => /^[\p{L}\p{N}_+-]{1,40}$/u.test(tag)),
     ),
   ).slice(0, 16);
 }
@@ -65,7 +65,7 @@ function parserHelperUrl(platform: string) {
 
 async function mediaPayload() {
   const d1 = await getD1();
-  const [rows, storage, collectionSettings, collectionTasks] = await Promise.all([
+  const [rows, storage, collectionSettings, collectionTasks, collectionProvider] = await Promise.all([
     d1
       .prepare(
         `SELECT * FROM media_library_assets
@@ -83,11 +83,15 @@ async function mediaPayload() {
     d1
       .prepare(
         `SELECT * FROM media_collection_tasks
-         ORDER BY CASE status WHEN 'pending_review' THEN 0 ELSE 1 END,
+         ORDER BY CASE status
+           WHEN 'running' THEN 0 WHEN 'queued' THEN 1
+           WHEN 'needs_configuration' THEN 2 WHEN 'failed' THEN 3
+           ELSE 4 END,
                   datetime(created_at) DESC, id DESC
          LIMIT 60`,
       )
       .all(),
+    mediaCollectionProviderStatus(),
   ]);
   return {
     assets: rows.results,
@@ -95,6 +99,7 @@ async function mediaPayload() {
     storage,
     collectionSettings,
     collectionTasks: collectionTasks.results,
+    collectionProvider,
   };
 }
 
@@ -131,6 +136,7 @@ export async function POST(request: Request) {
         collectionEnabled?: boolean;
         collectionIntervalDays?: number;
         collectionKeywords?: string | string[];
+        collectionAutoImportLimit?: number;
         collectionTaskId?: number;
         collectionTaskStatus?: string;
         assetId?: number;
@@ -172,14 +178,16 @@ export async function POST(request: Request) {
         await d1
           .prepare(
             `UPDATE media_collection_settings
-             SET enabled = ?, interval_days = ?, keywords_json = ?,
-                 updated_at = CURRENT_TIMESTAMP
+         SET enabled = ?, interval_days = ?, keywords_json = ?,
+             auto_import_limit = ?,
+             updated_at = CURRENT_TIMESTAMP
              WHERE id = 1`,
           )
           .bind(
             body.collectionEnabled ? 1 : 0,
             intervalDays,
             JSON.stringify(keywords),
+            Math.max(1, Math.min(8, Number(body.collectionAutoImportLimit) || 3)),
           )
           .run();
         if (body.collectionEnabled) await maintainMediaCollectionTasks();
@@ -212,6 +220,14 @@ export async function POST(request: Request) {
           .bind(status, status, taskId)
           .run();
         return noStoreJson({ ok: true, ...(await mediaPayload()) });
+      }
+      if (body.action === "retry_collection_task") {
+        const taskId = Number(body.collectionTaskId);
+        if (!Number.isInteger(taskId) || taskId <= 0) {
+          return noStoreJson({ error: "Invalid collection task." }, { status: 400 });
+        }
+        const collection = await retryMediaCollectionTask(taskId);
+        return noStoreJson({ ok: true, collection, ...(await mediaPayload()) });
       }
       if (body.action === "refresh_source_preview") {
         const assetId = Number(body.assetId);
@@ -252,50 +268,25 @@ export async function POST(request: Request) {
         return noStoreJson({ ok: true, inspection, ...(await mediaPayload()) });
       }
 
-      if (body.action === "extract_remote_media") {
+      if (body.action === "import_remote_media") {
         const source = validateMediaSourceUrl(
           body.sourceUrl ?? "",
           body.platform,
         );
-        const extraction = await resolveRemoteMediaAssets({
+        const imported = await importRemoteMediaAssets({
           platform: source.platform,
           sourceUrl: source.url,
+          title: body.sourceTitle,
+          tags: body.tags,
+          availableFrom: scheduledDate(body.availableFrom ?? ""),
           imageUrls: body.imageUrls,
           rightsConfirmed: Boolean(body.rightsConfirmed),
         });
         return noStoreJson({
           ok: true,
-          extraction,
+          import: imported,
           helperUrl: parserHelperUrl(source.platform),
-        });
-      }
-
-      if (body.action === "download_remote_image") {
-        if (!body.rightsConfirmed) {
-          return noStoreJson(
-            { error: "Confirm that the image is owned or authorized before downloading." },
-            { status: 400 },
-          );
-        }
-        const source = validateMediaSourceUrl(
-          body.sourceUrl ?? "",
-          body.platform,
-        );
-        const downloaded = await downloadRemoteImage(
-          body.imageUrl ?? "",
-          source.url,
-        );
-        const index = Math.max(1, Math.min(99, Number(body.imageIndex) || 1));
-        const filename = `${source.platform}-media-${String(index).padStart(2, "0")}.${remoteExtensionForMime(downloaded.mime)}`;
-        return new Response(downloaded.bytes, {
-          status: 200,
-          headers: {
-            "Cache-Control": "private, no-store, max-age=0",
-            "Content-Disposition": `attachment; filename="${filename}"`,
-            "Content-Length": String(downloaded.bytes.byteLength),
-            "Content-Type": downloaded.mime,
-            "X-Content-Type-Options": "nosniff",
-          },
+          ...(await mediaPayload()),
         });
       }
 
@@ -508,6 +499,7 @@ export async function PATCH(request: Request) {
       availableFrom?: string;
       tags?: string;
       title?: string;
+      rightsConfirmed?: boolean;
     };
     const id = Number(body.assetId);
     if (!Number.isInteger(id) || id <= 0) return noStoreJson({ error: "Invalid media asset." }, { status: 400 });
@@ -515,10 +507,33 @@ export async function PATCH(request: Request) {
     const status = statuses.has(body.status ?? "") ? body.status : "approved";
     const tags = safeTags(body.tags ?? "");
     const d1 = await getD1();
+    const existing = await d1
+      .prepare(
+        "SELECT rights_basis, rights_confirmed_at FROM media_library_assets WHERE id = ? LIMIT 1",
+      )
+      .bind(id)
+      .first<{ rights_basis: string; rights_confirmed_at: string }>();
+    if (!existing) {
+      return noStoreJson({ error: "Media asset not found." }, { status: 404 });
+    }
+    if (
+      status === "approved" &&
+      existing.rights_basis === "pending_source_review" &&
+      !existing.rights_confirmed_at &&
+      !body.rightsConfirmed
+    ) {
+      return noStoreJson(
+        { error: "请先确认该自动采集素材已获得商业展示授权。" },
+        { status: 400 },
+      );
+    }
     await d1
       .prepare(
         `UPDATE media_library_assets SET status = ?, available_from = ?,
-           tags_json = ?, source_title = ?, updated_at = CURRENT_TIMESTAMP
+           tags_json = ?, source_title = ?,
+           rights_basis = CASE WHEN ? = 1 THEN 'owned_or_authorized' ELSE rights_basis END,
+           rights_confirmed_at = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE rights_confirmed_at END,
+           updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
       )
       .bind(
@@ -526,6 +541,8 @@ export async function PATCH(request: Request) {
         scheduledDate(body.availableFrom ?? "", new Date().toISOString().slice(0, 10)),
         JSON.stringify(tags),
         (body.title ?? "").trim().slice(0, 180),
+        body.rightsConfirmed ? 1 : 0,
+        body.rightsConfirmed ? 1 : 0,
         id,
       )
       .run();

@@ -6,9 +6,9 @@ PEPTIVANTA 反馈中心与轻量客户门户——方案与 AI 交接上下文
 - 编写日期：2026-08-05；实施更新：2026-08-08（Asia/Shanghai）
 - 当前状态：方案已经落地到源码，构建、迁移和测试进入最终验证阶段。
 - 已新增客户账号、订单绑定、反馈中心、独立审核后台、客户后台、素材库、R2 绑定、
-  180 天清理任务和 TikSave/KuKuTool 合规辅助入口。
-- 正式运行还依赖两个 Cloudflare Secret：FULFILLMENT_ADMIN_KEY 与
-  CUSTOMER_AUTH_SECRET；真实值不得写进本文档或 GitHub。
+  180 天清理任务、外链 R2 入库和小红书关键词自动采集审核队列。
+- 正式运行依赖三个 Cloudflare Secret：FULFILLMENT_ADMIN_KEY、
+  CUSTOMER_AUTH_SECRET 与 JINA_API_KEY；真实值不得写进本文档或 GitHub。
 - 当前站点源码目录：C:\Users\33171\Desktop\myseverv\site
 - 线上域名：https://peptivanta.com
 - 私有 GitHub 仓库：https://github.com/espinosacenterfold-rgb/peptivanta-biosciences

@@ -376,10 +376,9 @@ export const mediaCleanupEvents = sqliteTable(
 );
 
 /**
- * A scheduled research queue for the media administrator. It creates only a
- * Xiaohongshu keyword/search task: no third-party post is copied, downloaded,
- * or published automatically. A selected source still has to pass the normal
- * ownership/authorization confirmation before its file can enter R2.
+ * Automated source discovery settings. Scheduled runs search configured
+ * keywords and place extracted files in the private R2 review queue. Files do
+ * not become public until an administrator confirms usage rights.
  */
 export const mediaCollectionSettings = sqliteTable(
   "media_collection_settings",
@@ -390,6 +389,7 @@ export const mediaCollectionSettings = sqliteTable(
     keywordsJson: text("keywords_json")
       .notNull()
       .default('["多肽包装","实验室产品包装","外贸发货包装","COA检测报告"]'),
+    autoImportLimit: integer("auto_import_limit").notNull().default(3),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
 );
@@ -402,7 +402,13 @@ export const mediaCollectionTasks = sqliteTable(
     platform: text("platform").notNull().default("xiaohongshu"),
     keyword: text("keyword").notNull(),
     searchUrl: text("search_url").notNull(),
-    status: text("status").notNull().default("pending_review"),
+    status: text("status").notNull().default("queued"),
+    provider: text("provider").notNull().default("jina"),
+    resultCount: integer("result_count").notNull().default(0),
+    assetCount: integer("asset_count").notNull().default(0),
+    errorMessage: text("error_message").notNull().default(""),
+    startedAt: text("started_at"),
+    finishedAt: text("finished_at"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     reviewedAt: text("reviewed_at"),
   },

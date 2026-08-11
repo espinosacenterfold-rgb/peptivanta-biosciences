@@ -334,3 +334,245 @@ export async function resolveRemoteMediaAssets(input: {
     imageUrls: imageUrls.slice(0, MAX_REMOTE_IMAGES),
   };
 }
+
+function normalizedTags(input: unknown, platform: MediaSourcePlatform) {
+  const source = Array.isArray(input)
+    ? input
+    : String(input ?? "").split(/[，,\n]/);
+  return Array.from(
+    new Set(
+      [platform, ...source]
+        .map((tag) => String(tag).trim().toLowerCase())
+        .filter((tag) => /^[\p{L}\p{N}_+-]{1,40}$/u.test(tag)),
+    ),
+  ).slice(0, 20);
+}
+
+async function sha256(value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function fingerprintInput(value: string) {
+  const url = new URL(value);
+  return `${url.origin}${url.pathname}`;
+}
+
+async function persistRemoteMediaAssets(input: {
+  platform: MediaSourcePlatform;
+  sourceUrl: string;
+  imageUrls: string[];
+  inspection?: SourceInspection | null;
+  title?: string;
+  author?: string;
+  tags?: unknown;
+  availableFrom: string;
+  finalStatus: "approved" | "pending";
+  rightsBasis: "owned_or_authorized" | "pending_source_review";
+  maximumImages?: number;
+}) {
+  const [database, storage] = await Promise.all([
+    import("../db"),
+    import("./media-storage"),
+  ]);
+  const { getD1, getMediaStore } = database;
+  const {
+    enforceMediaStorageLimit,
+    getMediaStorageSettings,
+    mediaExpiryIso,
+  } = storage;
+  const source = validateMediaSourceUrl(input.sourceUrl, input.platform);
+  const d1 = await getD1();
+  const media = await getMediaStore();
+  const storageSettings = await getMediaStorageSettings();
+  const tags = normalizedTags(input.tags, source.platform);
+  const imported: Array<{ publicId: string; title: string; status: string }> = [];
+  const skipped: string[] = [];
+  const failed: Array<{ url: string; message: string }> = [];
+  const imageUrls = input.imageUrls.slice(
+    0,
+    Math.max(1, Math.min(MAX_REMOTE_IMAGES, input.maximumImages ?? MAX_REMOTE_IMAGES)),
+  );
+
+  for (const [index, remoteUrl] of imageUrls.entries()) {
+    try {
+      const fingerprint = await sha256(fingerprintInput(remoteUrl));
+      const publicId = `media_remote_${fingerprint.slice(0, 24)}`;
+      const existing = await d1
+        .prepare("SELECT public_id FROM media_library_assets WHERE public_id = ?")
+        .bind(publicId)
+        .first<{ public_id: string }>();
+      if (existing) {
+        skipped.push(publicId);
+        continue;
+      }
+
+      const downloaded = await downloadRemoteImage(remoteUrl, source.url);
+      const capacity = await enforceMediaStorageLimit({
+        incomingBytes: downloaded.bytes.byteLength,
+      });
+      if (!capacity.canAccept) {
+        throw new Error("R2 容量保护已阻止本次导入。");
+      }
+
+      const extension = extensionForMime(downloaded.mime);
+      const r2Key = `feedback-media/${new Date().toISOString().slice(0, 7)}/${publicId}.${extension}`;
+      const baseTitle =
+        input.title ||
+        input.inspection?.title ||
+        `${source.platform === "tiktok" ? "TikTok" : "小红书"} 素材`;
+      const title = `${baseTitle.slice(0, 160)}${imageUrls.length > 1 ? ` · ${index + 1}` : ""}`;
+      const reservation = await d1
+        .prepare(
+          `INSERT INTO media_library_assets (
+            public_id, status, source_platform, source_url, preview_url,
+            source_title, source_author, rights_basis, rights_confirmed_at,
+            original_filename, r2_key, mime_type, size_bytes, width, height,
+            tags_json, available_from, expires_at
+          )
+          SELECT ?, 'uploading', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?
+          WHERE COALESCE((
+            SELECT SUM(size_bytes) FROM media_library_assets WHERE r2_key <> ''
+          ), 0) + ? <= COALESCE((
+            SELECT hard_limit_bytes FROM media_storage_settings WHERE id = 1
+          ), 10000000000)
+          ON CONFLICT(public_id) DO NOTHING`,
+        )
+        .bind(
+          publicId,
+          source.platform,
+          source.url,
+          downloaded.finalUrl,
+          title,
+          (input.author || input.inspection?.author || "").slice(0, 100),
+          input.rightsBasis,
+          input.rightsBasis === "owned_or_authorized"
+            ? new Date().toISOString()
+            : "",
+          `remote-${index + 1}.${extension}`,
+          r2Key,
+          downloaded.mime,
+          downloaded.bytes.byteLength,
+          JSON.stringify(tags),
+          input.availableFrom,
+          mediaExpiryIso(storageSettings.retentionDays),
+          downloaded.bytes.byteLength,
+        )
+        .run();
+      if (Number(reservation.meta.changes ?? 0) !== 1) {
+        skipped.push(publicId);
+        continue;
+      }
+
+      try {
+        await media.put(r2Key, downloaded.bytes, {
+          httpMetadata: {
+            contentType: downloaded.mime,
+            cacheControl: "public, max-age=86400",
+          },
+          customMetadata: {
+            publicId,
+            sourcePlatform: source.platform,
+            importMode:
+              input.finalStatus === "approved"
+                ? "authorized-remote"
+                : "automatic-review-queue",
+          },
+        });
+        await d1
+          .prepare(
+            `UPDATE media_library_assets
+             SET status = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE public_id = ? AND status = 'uploading'`,
+          )
+          .bind(input.finalStatus, publicId)
+          .run();
+        imported.push({ publicId, title, status: input.finalStatus });
+      } catch (error) {
+        await media.delete(r2Key).catch(() => undefined);
+        await d1
+          .prepare(
+            "DELETE FROM media_library_assets WHERE public_id = ? AND status = 'uploading'",
+          )
+          .bind(publicId)
+          .run();
+        throw error;
+      }
+    } catch (error) {
+      failed.push({
+        url: remoteUrl,
+        message: error instanceof Error ? error.message : "导入失败。",
+      });
+    }
+  }
+
+  if (imported.length === 0 && skipped.length === 0) {
+    throw new Error(failed[0]?.message ?? "没有可保存的图片素材。");
+  }
+  return {
+    source,
+    inspection: input.inspection ?? null,
+    imported,
+    skipped,
+    failed,
+    requestedCount: imageUrls.length,
+  };
+}
+
+/** Imports an administrator-confirmed source directly into the approved R2 library. */
+export async function importRemoteMediaAssets(input: {
+  platform: MediaSourcePlatform;
+  sourceUrl: string;
+  title?: string;
+  author?: string;
+  tags?: unknown;
+  availableFrom: string;
+  imageUrls?: unknown;
+  rightsConfirmed: boolean;
+}) {
+  const resolved = await resolveRemoteMediaAssets(input);
+  return persistRemoteMediaAssets({
+    platform: resolved.source.platform,
+    sourceUrl: resolved.source.url,
+    imageUrls: resolved.imageUrls,
+    inspection: resolved.inspection,
+    title: input.title,
+    author: input.author,
+    tags: input.tags,
+    availableFrom: input.availableFrom,
+    finalStatus: "approved",
+    rightsBasis: "owned_or_authorized",
+  });
+}
+
+/**
+ * Stores automatically discovered media in R2, but leaves it pending and
+ * unavailable to public feedback until an administrator confirms usage rights.
+ */
+export async function importDiscoveredMediaAssets(input: {
+  sourceUrl: string;
+  imageUrls: string[];
+  title?: string;
+  author?: string;
+  tags?: unknown;
+  availableFrom: string;
+  maximumImages?: number;
+}) {
+  return persistRemoteMediaAssets({
+    platform: "xiaohongshu",
+    sourceUrl: input.sourceUrl,
+    imageUrls: input.imageUrls,
+    title: input.title,
+    author: input.author,
+    tags: input.tags,
+    availableFrom: input.availableFrom,
+    finalStatus: "pending",
+    rightsBasis: "pending_source_review",
+    maximumImages: input.maximumImages,
+  });
+}
