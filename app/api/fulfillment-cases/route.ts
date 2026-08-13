@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { ensureFulfillmentSchema, getD1, getDb } from "../../../db";
+import { unexpectedErrorResponse } from "../../../lib/server-error";
 import {
   fulfillmentCases,
   manualFulfillmentOrderItems,
@@ -550,17 +551,7 @@ export async function GET() {
       },
     );
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Unable to load fulfillment records.";
-    return Response.json(
-      { error: message },
-      {
-        status: 500,
-        headers: { "Cache-Control": "no-store" },
-      },
-    );
+    return unexpectedErrorResponse("fulfillment-cases:get", error);
   }
 }
 

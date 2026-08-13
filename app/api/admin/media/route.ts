@@ -25,6 +25,7 @@ import {
   inspectMediaSource,
   validateMediaSourceUrl,
 } from "../../../../lib/media-import";
+import { logUnexpectedError, unexpectedErrorResponse } from "../../../../lib/server-error";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_UPLOAD_BYTES = 2_500_000;
@@ -112,7 +113,7 @@ export async function GET(request: Request) {
     await maintainMediaCollectionTasks();
     return noStoreJson(await mediaPayload());
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to load media." }, { status: 500 });
+    return unexpectedErrorResponse("admin-media:get", error);
   }
 }
 
@@ -299,7 +300,8 @@ export async function POST(request: Request) {
       try {
         inspection = await inspectMediaSource(source.url, source.platform);
       } catch (error) {
-        inspectionError = error instanceof Error ? error.message : "Metadata unavailable.";
+        logUnexpectedError("admin-media:inspect-source", error);
+        inspectionError = "Metadata unavailable.";
       }
       const title = inspection?.title ?? "";
       const author = inspection?.author ?? "";
@@ -483,7 +485,7 @@ export async function POST(request: Request) {
     }
     return noStoreJson({ ok: true, publicId, ...(await mediaPayload()) });
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to save media." }, { status: 500 });
+    return unexpectedErrorResponse("admin-media:post", error);
   }
 }
 
@@ -548,7 +550,7 @@ export async function PATCH(request: Request) {
       .run();
     return noStoreJson(await mediaPayload());
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to update media." }, { status: 500 });
+    return unexpectedErrorResponse("admin-media:patch", error);
   }
 }
 
@@ -580,6 +582,6 @@ export async function DELETE(request: Request) {
     await deleteMediaAssetManually(id);
     return noStoreJson(await mediaPayload());
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to delete media." }, { status: 500 });
+    return unexpectedErrorResponse("admin-media:delete", error);
   }
 }

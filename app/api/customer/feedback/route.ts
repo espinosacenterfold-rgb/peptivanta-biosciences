@@ -7,6 +7,7 @@ import {
   requireSameOrigin,
 } from "../../../../lib/customer-auth";
 import { destinationCode, feedbackRiskFlags } from "../../../../lib/feedback";
+import { unexpectedErrorResponse } from "../../../../lib/server-error";
 
 export async function GET(request: Request) {
   try {
@@ -27,10 +28,7 @@ export async function GET(request: Request) {
       .all();
     return noStoreJson({ feedback: rows.results });
   } catch (error) {
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Unable to load feedback." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("customer-feedback:get", error);
   }
 }
 
@@ -176,9 +174,6 @@ export async function POST(request: Request) {
     }
     return noStoreJson({ ok: true, status: "pending_review", riskFlags });
   } catch (error) {
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Unable to submit feedback." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("customer-feedback:post", error);
   }
 }

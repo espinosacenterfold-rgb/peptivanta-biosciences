@@ -6,6 +6,7 @@ import {
   requireSameOrigin,
   verifyCredential,
 } from "../../../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../../../lib/server-error";
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
@@ -83,9 +84,6 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Unable to link the order." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("customer-order-link:post", error);
   }
 }

@@ -1,6 +1,7 @@
 import { ensureCommunitySchema, getD1 } from "../../../../db";
 import { requireFulfillmentAdmin } from "../auth";
 import { noStoreJson } from "../../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../../lib/server-error";
 
 export async function GET(request: Request) {
   const denied = await requireFulfillmentAdmin(request);
@@ -94,9 +95,6 @@ export async function GET(request: Request) {
       activity: activity.results,
     });
   } catch (error) {
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Unable to load the control panel." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("admin-dashboard:get", error);
   }
 }

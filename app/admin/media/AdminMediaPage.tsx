@@ -892,12 +892,15 @@ export default function AdminMediaPage() {
           </div>
           <div className="admin-result-summary"><p>显示 <b>{visibleAssets.length}</b> / {data?.assets.length ?? 0} 条素材</p>{(assetQuery || assetStatus !== "all" || assetPlatform !== "all") && <button type="button" onClick={() => { setAssetQuery(""); setAssetStatus("all"); setAssetPlatform("all"); }}>清除筛选</button>}</div>
           <div className="admin-media-grid">
-            {visibleAssets.map((asset) => (
+            {visibleAssets.map((asset) => {
+              const previewAllowed = asset.status === "approved";
+              const previewAvailable = Boolean(asset.r2_key || asset.preview_url);
+              return (
               <article key={asset.id}>
-                {(asset.r2_key && asset.status !== "uploading") || asset.preview_url ? (
+                {previewAllowed && previewAvailable ? (
                   <div className="admin-media-preview-shell">
                     <img
-                      src={asset.r2_key && asset.status === "approved" ? `/api/media/${asset.public_id}` : asset.preview_url}
+                      src={asset.r2_key ? `/api/media/${asset.public_id}` : asset.preview_url}
                       alt={asset.source_title || "素材预览"}
                       loading="lazy"
                       referrerPolicy="no-referrer"
@@ -912,8 +915,8 @@ export default function AdminMediaPage() {
                   </div>
                 ) : (
                   <div className="admin-media-placeholder">
-                    {asset.status === "uploading" ? "UPLOADING" : "SOURCE"}<br />
-                    {asset.status === "uploading" ? "RESERVED" : "LINK"}
+                    {asset.status === "uploading" ? "UPLOADING" : previewAllowed ? "PREVIEW" : "MEDIA"}<br />
+                    {asset.status === "uploading" ? "RESERVED" : previewAllowed ? "UNAVAILABLE" : "LOCKED"}
                   </div>
                 )}
                 <form onSubmit={(event) => void updateAsset(event, asset.id)}>
@@ -939,7 +942,8 @@ export default function AdminMediaPage() {
                   </div>
                 </form>
               </article>
-            ))}
+              );
+            })}
             {!visibleAssets.length && <p className="admin-empty">没有符合当前条件的素材。</p>}
           </div>
         </section>

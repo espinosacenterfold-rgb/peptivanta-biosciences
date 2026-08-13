@@ -1,4 +1,5 @@
 import { createHumanChallenge, enforceAuthRateLimit, noStoreJson } from "../../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../../lib/server-error";
 
 export async function GET(request: Request) {
   try {
@@ -6,9 +7,6 @@ export async function GET(request: Request) {
     if (limited) return limited;
     return noStoreJson(await createHumanChallenge());
   } catch (error) {
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Unable to create verification challenge." },
-      { status: 503 },
-    );
+    return unexpectedErrorResponse("customer-challenge:get", error, 503);
   }
 }

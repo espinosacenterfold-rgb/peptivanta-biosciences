@@ -6,6 +6,7 @@ import {
 } from "../../../../lib/feedback-ledger";
 import { noStoreJson, requireSameOrigin } from "../../../../lib/customer-auth";
 import { feedbackRiskFlags } from "../../../../lib/feedback";
+import { unexpectedErrorResponse } from "../../../../lib/server-error";
 
 async function feedbackPayload() {
   const d1 = await getD1();
@@ -46,7 +47,7 @@ export async function GET(request: Request) {
     await maintainFeedbackLedger();
     return noStoreJson(await feedbackPayload());
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to load feedback." }, { status: 500 });
+    return unexpectedErrorResponse("admin-feedback:get", error);
   }
 }
 
@@ -246,7 +247,7 @@ export async function PATCH(request: Request) {
     await d1.batch(statements);
     return noStoreJson(await feedbackPayload());
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to update feedback." }, { status: 500 });
+    return unexpectedErrorResponse("admin-feedback:patch", error);
   }
 }
 
@@ -282,6 +283,6 @@ export async function DELETE(request: Request) {
     await d1.batch(statements);
     return noStoreJson(await feedbackPayload());
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to delete feedback." }, { status: 500 });
+    return unexpectedErrorResponse("admin-feedback:delete", error);
   }
 }

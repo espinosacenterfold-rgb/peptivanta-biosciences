@@ -6,6 +6,7 @@ import {
   type GeneratorSettings,
 } from "../../fulfillment-cases/generator";
 import { requireFulfillmentAdmin } from "../auth";
+import { unexpectedErrorResponse } from "../../../../lib/server-error";
 
 type SettingsRow = {
   display_limit: number;
@@ -147,10 +148,7 @@ export async function GET(request: Request) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Unable to load settings." },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
-    );
+    return unexpectedErrorResponse("admin-generator:get", error);
   }
 }
 
@@ -197,9 +195,6 @@ export async function PATCH(request: Request) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Unable to save settings." },
-      { status: 400, headers: { "Cache-Control": "no-store" } },
-    );
+    return unexpectedErrorResponse("admin-generator:patch", error);
   }
 }

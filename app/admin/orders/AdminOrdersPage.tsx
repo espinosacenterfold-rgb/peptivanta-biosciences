@@ -311,7 +311,7 @@ export default function AdminOrdersPage() {
     }
   }
 
-  function advanceOrder(order: ManualOrder) {
+  async function advanceOrder(order: ManualOrder) {
     const currentIndex = statuses.findIndex(
       (option) => option.value === order.status,
     );
@@ -320,8 +320,10 @@ export default function AdminOrdersPage() {
       setMessage(`${order.reference} 已经是最终状态。`);
       return;
     }
-    updateLocalOrder(order.id, { status: next.value });
-    void saveOrder(order, next.value);
+    // Do not optimistically change the visible status. adminRequest updates
+    // the list only after D1 confirms the PATCH, so a failed request keeps the
+    // last persisted status on screen.
+    await saveOrder(order, next.value);
   }
 
   async function deleteOrder(order: ManualOrder) {
@@ -806,7 +808,7 @@ export default function AdminOrdersPage() {
                     <button
                       className="admin-advance"
                       type="button"
-                      onClick={() => advanceOrder(order)}
+                      onClick={() => void advanceOrder(order)}
                       disabled={busy || order.status === "delivered"}
                     >
                       推进下一阶段

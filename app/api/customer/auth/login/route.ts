@@ -9,6 +9,7 @@ import {
   verifyCredential,
   verifyHumanChallenge,
 } from "../../../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../../../lib/server-error";
 
 export async function POST(request: Request) {
   const originError = requireSameOrigin(request);
@@ -66,9 +67,6 @@ export async function POST(request: Request) {
     response.headers.append("Set-Cookie", sessionCookie(session.token));
     return response;
   } catch (error) {
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Sign-in failed." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("customer-login:post", error);
   }
 }

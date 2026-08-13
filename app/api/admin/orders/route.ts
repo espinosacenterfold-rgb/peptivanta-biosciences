@@ -7,6 +7,9 @@ import {
 } from "../../../../lib/order-pricing.ts";
 import { requireFulfillmentAdmin } from "../auth";
 import { requireSameOrigin } from "../../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../../lib/server-error";
+
+class OrderInputError extends Error {}
 
 const markets = new Set([
   "United States",
@@ -91,11 +94,11 @@ type StoredItem = {
 
 function textField(value: unknown, name: string, maximum: number) {
   if (typeof value !== "string") {
-    throw new Error(`${name} is required.`);
+    throw new OrderInputError(`${name} is required.`);
   }
   const normalized = value.trim();
   if (!normalized || normalized.length > maximum) {
-    throw new Error(`${name} must contain 1-${maximum} characters.`);
+    throw new OrderInputError(`${name} must contain 1-${maximum} characters.`);
   }
   return normalized;
 }
@@ -103,11 +106,11 @@ function textField(value: unknown, name: string, maximum: number) {
 function validateDate(value: unknown) {
   const date = textField(value, "Order date", 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new Error("Order date must use YYYY-MM-DD.");
+    throw new OrderInputError("Order date must use YYYY-MM-DD.");
   }
   const parsed = new Date(`${date}T00:00:00.000Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
-    throw new Error("Order date is invalid.");
+    throw new OrderInputError("Order date is invalid.");
   }
   return date;
 }
@@ -116,7 +119,7 @@ function normalizeReference(value: unknown, occurredAt: string) {
   const supplied = typeof value === "string" ? value.trim().toUpperCase() : "";
   if (supplied) {
     if (!/^[A-Z0-9][A-Z0-9-]{4,39}$/.test(supplied)) {
-      throw new Error(
+      throw new OrderInputError(
         "Reference must contain 5-40 uppercase letters, numbers, or hyphens.",
       );
     }
@@ -135,7 +138,7 @@ function moneyField(value: unknown, name: string) {
     amount < 0 ||
     amount > 1_000_000_000
   ) {
-    throw new Error(`${name} must be between US$0 and US$10,000,000.`);
+    throw new OrderInputError(`${name} must be between US$0 and US$10,000,000.`);
   }
   return amount;
 }
@@ -147,7 +150,7 @@ function validateItem(input: ManualOrderItemInput, index: number) {
     quantityUnits < 1 ||
     quantityUnits > 100_000
   ) {
-    throw new Error(
+    throw new OrderInputError(
       `Product ${index + 1} quantity must be a whole number between 1 and 100,000.`,
     );
   }
@@ -165,7 +168,7 @@ function validateItem(input: ManualOrderItemInput, index: number) {
   );
   const catalogItem = findCatalogVariant(sku, productName, specification);
   if (!catalogItem) {
-    throw new Error(
+    throw new OrderInputError(
       `Product ${index + 1} does not match the official quote catalogue.`,
     );
   }
@@ -185,13 +188,13 @@ function validateInput(body: ManualOrderInput, includeId: boolean) {
   const service = textField(body.service, "Service", 30);
   const status = textField(body.status, "Status", 40);
 
-  if (!markets.has(destination)) throw new Error("Destination is invalid.");
-  if (!services.has(service)) throw new Error("Service is invalid.");
-  if (!statuses.has(status)) throw new Error("Status is invalid.");
+  if (!markets.has(destination)) throw new OrderInputError("Destination is invalid.");
+  if (!services.has(service)) throw new OrderInputError("Service is invalid.");
+  if (!statuses.has(status)) throw new OrderInputError("Status is invalid.");
 
   const id = Number(body.id);
   if (includeId && (!Number.isSafeInteger(id) || id < 1)) {
-    throw new Error("Order id is invalid.");
+    throw new OrderInputError("Order id is invalid.");
   }
 
   const submittedItems = Array.isArray(body.items)
@@ -205,14 +208,14 @@ function validateInput(body: ManualOrderInput, includeId: boolean) {
         },
       ];
   if (submittedItems.length < 1 || submittedItems.length > 20) {
-    throw new Error("An order must contain between 1 and 20 product lines.");
+    throw new OrderInputError("An order must contain between 1 and 20 product lines.");
   }
   const items = submittedItems.map(validateItem);
   const duplicateKeys = new Set<string>();
   for (const item of items) {
     const key = `${item.sku}\u0000${item.productName}\u0000${item.specification}`;
     if (duplicateKeys.has(key)) {
-      throw new Error(
+      throw new OrderInputError(
         "The same product specification appears more than once. Combine its quantity into one line.",
       );
     }
@@ -229,7 +232,7 @@ function validateInput(body: ManualOrderInput, includeId: boolean) {
     deductionUsdCents,
   });
   if (pricing.amountUsdCents < 1) {
-    throw new Error("The calculated order total must be greater than US$0.");
+    throw new OrderInputError("The calculated order total must be greater than US$0.");
   }
 
   const firstItem = pricing.items[0];
@@ -388,12 +391,15 @@ async function readOrders() {
 export async function GET(request: Request) {
   const unauthorized = await requireFulfillmentAdmin(request);
   if (unauthorized) return unauthorized;
-
-  await ensureFulfillmentSchema();
-  return Response.json(
-    { orders: await readOrders() },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  try {
+    await ensureFulfillmentSchema();
+    return Response.json(
+      { orders: await readOrders() },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    return unexpectedErrorResponse("admin-orders:get", error);
+  }
 }
 
 export async function POST(request: Request) {
@@ -474,13 +480,20 @@ export async function POST(request: Request) {
         // Preserve the original error response if cleanup itself fails.
       }
     }
-    const message =
-      error instanceof Error ? error.message : "Unable to create order.";
-    const status = /UNIQUE constraint failed/i.test(message) ? 409 : 400;
-    return Response.json(
-      { error: status === 409 ? "That order reference already exists." : message },
-      { status, headers: { "Cache-Control": "no-store" } },
-    );
+    const message = error instanceof Error ? error.message : "";
+    if (/UNIQUE constraint failed/i.test(message)) {
+      return Response.json(
+        { error: "That order reference already exists." },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (error instanceof OrderInputError) {
+      return Response.json(
+        { error: error.message },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return unexpectedErrorResponse("admin-orders:post", error);
   }
 }
 
@@ -644,13 +657,20 @@ export async function PATCH(request: Request) {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to update order.";
-    const status = /UNIQUE constraint failed/i.test(message) ? 409 : 400;
-    return Response.json(
-      { error: status === 409 ? "That order reference already exists." : message },
-      { status, headers: { "Cache-Control": "no-store" } },
-    );
+    const message = error instanceof Error ? error.message : "";
+    if (/UNIQUE constraint failed/i.test(message)) {
+      return Response.json(
+        { error: "That order reference already exists." },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (error instanceof OrderInputError) {
+      return Response.json(
+        { error: error.message },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return unexpectedErrorResponse("admin-orders:patch", error);
   }
 }
 
@@ -691,11 +711,6 @@ export async function DELETE(request: Request) {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to delete order.";
-    return Response.json(
-      { error: message },
-      { status: 400, headers: { "Cache-Control": "no-store" } },
-    );
+    return unexpectedErrorResponse("admin-orders:delete", error);
   }
 }

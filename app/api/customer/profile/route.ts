@@ -4,6 +4,7 @@ import {
   requireCustomer,
   requireSameOrigin,
 } from "../../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../../lib/server-error";
 
 async function accountPayload(customerId: number) {
   const d1 = await getD1();
@@ -39,10 +40,7 @@ export async function GET(request: Request) {
     if (auth.response) return auth.response;
     return noStoreJson(await accountPayload(auth.customer.id));
   } catch (error) {
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Unable to load the profile." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("customer-profile:get", error);
   }
 }
 
@@ -102,9 +100,6 @@ export async function PATCH(request: Request) {
     ]);
     return noStoreJson(await accountPayload(auth.customer.id));
   } catch (error) {
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Unable to update the profile." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("customer-profile:patch", error);
   }
 }

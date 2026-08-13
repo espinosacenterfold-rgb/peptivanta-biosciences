@@ -6,6 +6,7 @@ import {
   randomToken,
   requireSameOrigin,
 } from "../../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../../lib/server-error";
 
 async function customerPayload() {
   const d1 = await getD1();
@@ -58,7 +59,7 @@ export async function GET(request: Request) {
     await ensureCommunitySchema();
     return noStoreJson(await customerPayload());
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to load customers." }, { status: 500 });
+    return unexpectedErrorResponse("admin-customers:get", error);
   }
 }
 
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
     ]);
     return noStoreJson({ ok: true, orderReference: order.reference, code, expiresAt });
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to create the binding code." }, { status: 500 });
+    return unexpectedErrorResponse("admin-customers:post", error);
   }
 }
 
@@ -138,6 +139,6 @@ export async function PATCH(request: Request) {
     }
     return noStoreJson(await customerPayload());
   } catch (error) {
-    return noStoreJson({ error: error instanceof Error ? error.message : "Unable to update the customer." }, { status: 500 });
+    return unexpectedErrorResponse("admin-customers:patch", error);
   }
 }

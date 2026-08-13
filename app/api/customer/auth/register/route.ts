@@ -12,6 +12,7 @@ import {
   validUsername,
   verifyHumanChallenge,
 } from "../../../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../../../lib/server-error";
 
 type RegisterBody = {
   username?: string;
@@ -125,9 +126,6 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Account registration failed." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("customer-register:post", error);
   }
 }

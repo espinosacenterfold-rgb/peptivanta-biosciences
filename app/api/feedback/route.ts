@@ -1,5 +1,5 @@
 import { publicFeedback } from "../../../lib/feedback-ledger";
-import { noStoreJson } from "../../../lib/customer-auth";
+import { unexpectedErrorResponse } from "../../../lib/server-error";
 
 const allowedCountries = new Set(["US", "CA", "BR", "MX"]);
 const allowedServices = new Set(["catalogue", "private_label", "bulk", "custom"]);
@@ -28,9 +28,6 @@ export async function GET(request: Request) {
       },
     );
   } catch (error) {
-    return noStoreJson(
-      { error: error instanceof Error ? error.message : "Feedback is temporarily unavailable." },
-      { status: 500 },
-    );
+    return unexpectedErrorResponse("public-feedback:get", error);
   }
 }
