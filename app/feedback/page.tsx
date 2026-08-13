@@ -3,7 +3,7 @@ import FeedbackPage from "./FeedbackPage";
 
 export const metadata: Metadata = {
   title: "Buyer Service Feedback",
-  description: "Reviewed customer submissions and clearly labelled illustrative service feedback.",
+  description: "Reviewed customer submissions.",
 };
 
 export default function FeedbackRoute() {

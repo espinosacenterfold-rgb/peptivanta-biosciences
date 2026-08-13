@@ -16,31 +16,26 @@ export type PublicFeedbackRecord = {
 const labels = {
   en: {
     real: "Customer submitted · reviewed",
-    illustrative: "Example service feedback",
     first: "First order",
     repeat: "Repeat order",
   },
   pt: {
     real: "Enviado por cliente · revisado",
-    illustrative: "Exemplo de feedback de serviço",
     first: "Primeiro pedido",
     repeat: "Recompra",
   },
   es: {
     real: "Enviado por cliente · revisado",
-    illustrative: "Ejemplo de comentario de servicio",
     first: "Primer pedido",
     repeat: "Recompra",
   },
   fr: {
     real: "Soumis par un client · vérifié",
-    illustrative: "Exemple de retour de service",
     first: "Première commande",
     repeat: "Commande répétée",
   },
   zh: {
     real: "客户提交 · 已审核",
-    illustrative: "示例服务反馈",
     first: "首次订单",
     repeat: "客户复购",
   },
@@ -82,9 +77,7 @@ export default function FeedbackCard({
       )}
       <div className="feedback-card-body">
         <div className="feedback-card-labels">
-          <span className={record.sourceType === "illustrative" ? "is-illustrative" : "is-customer"}>
-            {record.sourceType === "illustrative" ? t.illustrative : t.real}
-          </span>
+          <span className="is-customer">{t.real}</span>
           <span>{record.orderKind === "repeat" ? t.repeat : t.first}</span>
         </div>
         <blockquote>{record.text}</blockquote>
