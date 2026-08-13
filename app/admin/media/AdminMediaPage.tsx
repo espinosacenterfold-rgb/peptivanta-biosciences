@@ -893,7 +893,10 @@ export default function AdminMediaPage() {
           <div className="admin-result-summary"><p>显示 <b>{visibleAssets.length}</b> / {data?.assets.length ?? 0} 条素材</p>{(assetQuery || assetStatus !== "all" || assetPlatform !== "all") && <button type="button" onClick={() => { setAssetQuery(""); setAssetStatus("all"); setAssetPlatform("all"); }}>清除筛选</button>}</div>
           <div className="admin-media-grid">
             {visibleAssets.map((asset) => {
-              const previewAllowed = asset.status === "approved";
+              // Pending/source-only/rejected records are locked without an
+              // image request. Scheduled assets have already been reviewed,
+              // so administrators may still preview them before publication.
+              const previewAllowed = asset.status === "approved" || asset.status === "scheduled";
               const previewAvailable = Boolean(asset.r2_key || asset.preview_url);
               return (
               <article key={asset.id}>
