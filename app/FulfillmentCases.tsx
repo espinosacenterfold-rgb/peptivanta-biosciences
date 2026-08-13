@@ -450,9 +450,7 @@ export default function FulfillmentCases({ locale }: { locale: Locale }) {
     setLoading(true);
     setError(false);
     try {
-      const response = await fetch("/api/fulfillment-cases", {
-        cache: "no-store",
-      });
+      const response = await fetch("/api/fulfillment-cases");
       if (!response.ok) throw new Error("Unable to load records");
       setData((await response.json()) as ApiResponse);
     } catch {

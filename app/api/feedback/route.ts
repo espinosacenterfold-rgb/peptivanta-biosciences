@@ -19,7 +19,14 @@ export async function GET(request: Request) {
       country: allowedCountries.has(countryInput) ? countryInput : undefined,
       service: allowedServices.has(serviceInput) ? serviceInput : undefined,
     });
-    return noStoreJson({ records, count: records.length, limit, offset });
+    return Response.json(
+      { records, count: records.length, limit, offset },
+      {
+        headers: {
+          "Cache-Control": "public, max-age=30, s-maxage=120, stale-while-revalidate=300",
+        },
+      },
+    );
   } catch (error) {
     return noStoreJson(
       { error: error instanceof Error ? error.message : "Feedback is temporarily unavailable." },

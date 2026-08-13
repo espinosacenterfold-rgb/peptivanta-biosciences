@@ -7,6 +7,7 @@ import {
 } from "../lib/feedback-ledger";
 import { cleanupExpiredCustomerAuth } from "../lib/customer-auth";
 import { maintainMediaCollectionTasks } from "../lib/media-collection";
+import { maintainFulfillmentLedger } from "../app/api/fulfillment-cases/route";
 import {
   applyAntiScrapingHeaders,
   crawlerBlockedResponse,
@@ -92,12 +93,17 @@ const worker = {
     ctx: ExecutionContext,
   ) {
     ctx.waitUntil(
-      Promise.all([
-        maintainFeedbackLedger(),
-        maintainMediaCollectionTasks(),
-        cleanupExpiredMedia(),
-        cleanupExpiredCustomerAuth(),
-      ]).then(() => undefined),
+      (async () => {
+        // Feedback generation depends on the latest fulfillment ledger, so
+        // complete the daily append before running the remaining maintenance.
+        await maintainFulfillmentLedger();
+        await Promise.all([
+          maintainFeedbackLedger(),
+          maintainMediaCollectionTasks(),
+          cleanupExpiredMedia(),
+          cleanupExpiredCustomerAuth(),
+        ]);
+      })(),
     );
   },
 };

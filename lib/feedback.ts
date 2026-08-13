@@ -190,7 +190,7 @@ const sensitivePatterns = [
 ];
 
 const unsupportedPurityPatterns = [
-  /100\s*%|guaranteed purity|highest purity|purest/i,
+  /(?:100\s*%\s*(?:pure|purity)|(?:pure|purity)\s*(?:at\s*)?100\s*%|guaranteed purity|highest purity|purest)/i,
   /百分之百|保证纯度|最高纯度|最纯/,
   /pureza garantida|maior pureza/i,
   /pureza garantizada|máxima pureza/i,

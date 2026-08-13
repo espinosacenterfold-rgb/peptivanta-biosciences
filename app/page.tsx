@@ -843,7 +843,7 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/fulfillment-cases", { cache: "no-store" })
+    fetch("/api/fulfillment-cases")
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((data: { count?: number }) => {
         if (active) setFulfillmentCount(data.count ?? 100);

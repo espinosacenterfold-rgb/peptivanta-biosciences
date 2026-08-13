@@ -19,7 +19,7 @@ export default function FeedbackPreview({ locale }: { locale: SiteLocale }) {
   const t = copy[locale];
   useEffect(() => {
     let active = true;
-    fetch(`/api/feedback?locale=${locale}&limit=4`, { cache: "no-store" })
+    fetch(`/api/feedback?locale=${locale}&limit=4`)
       .then((response) => (response.ok ? response.json() : Promise.reject()))
       .then((data: { records?: PublicFeedbackRecord[] }) => {
         if (active) setRecords(data.records ?? []);

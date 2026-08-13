@@ -83,6 +83,24 @@ export async function POST(request: Request) {
       .prepare("SELECT * FROM feedback_entries WHERE manual_order_id = ? LIMIT 1")
       .bind(order.id)
       .first<Record<string, unknown>>();
+    const priorOrder = await d1
+      .prepare(
+        `SELECT o.id
+         FROM customer_order_links l
+         INNER JOIN manual_fulfillment_orders o ON o.id = l.order_id
+         WHERE l.customer_id = ? AND o.id <> ?
+           AND (o.occurred_at < ? OR (o.occurred_at = ? AND o.id < ?))
+         LIMIT 1`,
+      )
+      .bind(
+        auth.customer.id,
+        order.id,
+        order.occurred_at,
+        order.occurred_at,
+        order.id,
+      )
+      .first<{ id: number }>();
+    const orderKind = priorOrder ? "repeat" : "new";
     const riskFlags = feedbackRiskFlags(text);
     const expiresAt = new Date(Date.now() + 180 * 86_400_000).toISOString();
     const snapshot = JSON.stringify({
@@ -99,7 +117,7 @@ export async function POST(request: Request) {
         d1
           .prepare(
             `UPDATE feedback_entries SET original_text = ?, public_text = '',
-               locale = ?, status = 'pending_review', risk_flags_json = ?,
+               locale = ?, order_kind = ?, status = 'pending_review', risk_flags_json = ?,
                submitted_at = CURRENT_TIMESTAMP, reviewed_at = NULL,
                published_at = NULL, expires_at = ?, updated_at = CURRENT_TIMESTAMP
              WHERE id = ? AND customer_id = ?`,
@@ -107,6 +125,7 @@ export async function POST(request: Request) {
           .bind(
             text,
             body.locale ?? auth.customer.locale,
+            orderKind,
             JSON.stringify(riskFlags),
             expiresAt,
             Number(existing.id),
@@ -129,7 +148,7 @@ export async function POST(request: Request) {
             country_code, service, order_kind, order_snapshot_json,
             locale, content_json, original_text, public_text, status,
             risk_flags_json, template_version, submitted_at, expires_at
-          ) VALUES (?, 'customer_submitted', ?, ?, ?, ?, 'new', ?, ?, '{}',
+          ) VALUES (?, 'customer_submitted', ?, ?, ?, ?, ?, ?, ?, '{}',
                     ?, '', 'pending_review', ?, '', CURRENT_TIMESTAMP, ?)`,
         )
         .bind(
@@ -138,6 +157,7 @@ export async function POST(request: Request) {
           auth.customer.id,
           destinationCode(order.destination),
           order.service,
+          orderKind,
           snapshot,
           body.locale ?? auth.customer.locale,
           text,

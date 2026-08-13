@@ -298,7 +298,8 @@ export default function AdminOrdersPage() {
     setMessage("");
     try {
       await adminRequest("PATCH", {
-        ...order,
+        action: "update_operational",
+        id: order.id,
         status: nextStatus ?? order.status,
         isPublished: Boolean(order.isPublished),
       });

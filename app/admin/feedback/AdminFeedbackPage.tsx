@@ -41,6 +41,22 @@ function displayText(row: FeedbackRow) {
   }
 }
 
+function displayRiskFlags(value: string | null | undefined) {
+  if (!value || value === "null") return "无";
+  try {
+    const flags = JSON.parse(value) as unknown;
+    const labels: Record<string, string> = {
+      medical_or_effect_claim: "医疗、药效或用法表述",
+      unsupported_purity_claim: "未经支持的绝对纯度表述",
+    };
+    return Array.isArray(flags) && flags.length > 0
+      ? flags.map((flag) => labels[String(flag)] ?? String(flag)).join("、")
+      : "无";
+  } catch {
+    return value;
+  }
+}
+
 export default function AdminFeedbackPage() {
   const auth = useAdminSession();
   const [data, setData] = useState<FeedbackPayload | null>(null);
@@ -187,7 +203,7 @@ export default function AdminFeedbackPage() {
                 <dl>
                   <div><dt>市场 / 服务</dt><dd>{row.country_code} · {row.service}</dd></div>
                   <div><dt>客户</dt><dd>{row.username || "模拟订单"} {row.company_name || ""}</dd></div>
-                  <div><dt>风险标记</dt><dd>{row.risk_flags_json === "[]" ? "无" : row.risk_flags_json}</dd></div>
+                  <div><dt>风险标记</dt><dd>{displayRiskFlags(row.risk_flags_json)}</dd></div>
                   <div><dt>到期</dt><dd>{new Date(row.expires_at).toLocaleDateString("zh-CN")}</dd></div>
                 </dl>
                 <div className="admin-feedback-controls">

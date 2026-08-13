@@ -6,6 +6,7 @@ import {
   type PricingService,
 } from "../../../../lib/order-pricing.ts";
 import { requireFulfillmentAdmin } from "../auth";
+import { requireSameOrigin } from "../../../../lib/customer-auth";
 
 const markets = new Set([
   "United States",
@@ -398,6 +399,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const unauthorized = await requireFulfillmentAdmin(request);
   if (unauthorized) return unauthorized;
+  const originError = requireSameOrigin(request);
+  if (originError) return originError;
 
   let insertedOrderId: number | null = null;
   try {
@@ -484,11 +487,48 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const unauthorized = await requireFulfillmentAdmin(request);
   if (unauthorized) return unauthorized;
+  const originError = requireSameOrigin(request);
+  if (originError) return originError;
 
   try {
     await ensureFulfillmentSchema();
     const body = (await request.json()) as ManualOrderInput;
     const d1 = await getD1();
+
+    if (body.action === "update_operational") {
+      const id = Number(body.id);
+      const status = typeof body.status === "string" ? body.status : "";
+      if (!Number.isSafeInteger(id) || id < 1) {
+        return Response.json(
+          { error: "Order id is invalid." },
+          { status: 400, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      if (!statuses.has(status)) {
+        return Response.json(
+          { error: "Status is invalid." },
+          { status: 400, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      const result = await d1
+        .prepare(
+          `UPDATE manual_fulfillment_orders
+           SET status = ?, is_published = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+        )
+        .bind(status, body.isPublished === false ? 0 : 1, id)
+        .run();
+      if (!result.meta.changes) {
+        return Response.json(
+          { error: "Order not found." },
+          { status: 404, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      return Response.json(
+        { ok: true, orders: await readOrders() },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
 
     if (body.action === "bulk_visibility" || body.action === "bulk_status") {
       const ids = Array.isArray(body.ids)
@@ -532,6 +572,13 @@ export async function PATCH(request: Request) {
       return Response.json(
         { ok: true, orders: await readOrders() },
         { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    if (body.action !== "replace_commercial_terms") {
+      return Response.json(
+        { error: "Choose an explicit order update action." },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
       );
     }
 
@@ -610,6 +657,8 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const unauthorized = await requireFulfillmentAdmin(request);
   if (unauthorized) return unauthorized;
+  const originError = requireSameOrigin(request);
+  if (originError) return originError;
 
   try {
     await ensureFulfillmentSchema();

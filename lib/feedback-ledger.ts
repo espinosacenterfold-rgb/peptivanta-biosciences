@@ -285,7 +285,6 @@ export async function publicFeedback(params: {
   country?: string;
   service?: string;
 }) {
-  await maintainFeedbackLedger();
   const d1 = await getD1();
   const settings = await d1
     .prepare("SELECT public_limit FROM feedback_generator_settings WHERE id = 1")
@@ -313,10 +312,31 @@ export async function publicFeedback(params: {
   const rows = await d1
     .prepare(
       `SELECT f.public_id, f.source_type, f.country_code, f.service,
-              f.order_kind, f.locale, f.content_json, f.public_text,
+              CASE
+                WHEN f.source_type = 'customer_submitted'
+                 AND EXISTS (
+                   SELECT 1
+                   FROM customer_order_links prior_link
+                   INNER JOIN manual_fulfillment_orders prior_order
+                     ON prior_order.id = prior_link.order_id
+                   WHERE prior_link.customer_id = f.customer_id
+                     AND prior_order.id <> f.manual_order_id
+                     AND (
+                       prior_order.occurred_at < current_order.occurred_at
+                       OR (
+                         prior_order.occurred_at = current_order.occurred_at
+                         AND prior_order.id < current_order.id
+                       )
+                     )
+                 ) THEN 'repeat'
+                ELSE f.order_kind
+              END AS order_kind,
+              f.locale, f.content_json, f.public_text,
               f.published_at, m.public_id AS media_public_id,
               m.source_title AS media_alt
        FROM feedback_entries f
+       LEFT JOIN manual_fulfillment_orders current_order
+         ON current_order.id = f.manual_order_id
        LEFT JOIN media_library_assets m
          ON m.id = f.media_asset_id
         AND m.status = 'approved'

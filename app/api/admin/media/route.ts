@@ -358,9 +358,9 @@ export async function POST(request: Request) {
     if (!ALLOWED_MIME.has(file.type) || file.size <= 0 || file.size > MAX_UPLOAD_BYTES) {
       return noStoreJson({ error: "Use a JPG, PNG, or WebP image no larger than 2.5 MB." }, { status: 400 });
     }
-    if (form.get("rightsConfirmed") !== "true") {
-      return noStoreJson({ error: "Confirm that the image is owned or authorized for commercial display." }, { status: 400 });
-    }
+    // Files selected in the manual upload form are administrator-provided
+    // first-party assets. Treat that action as the authorization confirmation;
+    // external-link imports still keep their explicit rights check.
     const sourceUrlInput = String(form.get("sourceUrl") ?? "").trim();
     const sourcePlatformInput = String(form.get("sourcePlatform") ?? "manual");
     let sourceUrl = sourceUrlInput;

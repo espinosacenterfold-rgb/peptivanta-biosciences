@@ -13,11 +13,11 @@ import {
 import FeedbackCard, { type PublicFeedbackRecord } from "./FeedbackCard";
 
 const pageCopy = {
-  en: { back: "Back to website", language: "Language", tag: "Service feedback", title: "A clearer view of the buying experience.", text: "Reviewed customer submissions are displayed. No medical or efficacy claims are published.", all: "All", countries: ["United States", "Canada", "Brazil", "Mexico"], load: "Load more", empty: "No matching feedback is available.", account: "Customer access" },
-  pt: { back: "Voltar ao site", language: "Idioma", tag: "Feedback de serviço", title: "Uma visão mais clara da experiência de compra.", text: "Exibimos opiniões revisadas de clientes. Não publicamos alegações médicas ou de eficácia.", all: "Todos", countries: ["Estados Unidos", "Canadá", "Brasil", "México"], load: "Carregar mais", empty: "Não há feedback correspondente.", account: "Acesso do cliente" },
-  es: { back: "Volver al sitio", language: "Idioma", tag: "Comentarios del servicio", title: "Una visión más clara de la experiencia de compra.", text: "Mostramos comentarios revisados de clientes. No publicamos afirmaciones médicas o de eficacia.", all: "Todos", countries: ["Estados Unidos", "Canadá", "Brasil", "México"], load: "Cargar más", empty: "No hay comentarios coincidentes.", account: "Acceso de clientes" },
-  fr: { back: "Retour au site", language: "Langue", tag: "Retours sur le service", title: "Une vision plus claire de l’expérience d’achat.", text: "Nous affichons des retours vérifiés de clients. Aucune allégation médicale ou d’efficacité n’est publiée.", all: "Tous", countries: ["États-Unis", "Canada", "Brésil", "Mexique"], load: "Afficher plus", empty: "Aucun retour correspondant.", account: "Accès client" },
-  zh: { back: "返回网站", language: "语言", tag: "服务反馈", title: "更清晰地了解采购体验。", text: "展示经审核的客户提交内容；不发布医疗或药效类表述。", all: "全部", countries: ["美国", "加拿大", "巴西", "墨西哥"], load: "加载更多", empty: "暂时没有符合条件的反馈。", account: "客户登录" },
+  en: { back: "Back to website", language: "Language", tag: "Service feedback", title: "A clearer view of the buying experience.", text: "Reviewed customer submissions are displayed. No medical or efficacy claims are published.", all: "All", countries: ["United States", "Canada", "Brazil", "Mexico"], load: "Load more", empty: "No matching feedback is available.", error: "Feedback could not be loaded. Please try again.", retry: "Try again", account: "Customer access" },
+  pt: { back: "Voltar ao site", language: "Idioma", tag: "Feedback de serviço", title: "Uma visão mais clara da experiência de compra.", text: "Exibimos opiniões revisadas de clientes. Não publicamos alegações médicas ou de eficácia.", all: "Todos", countries: ["Estados Unidos", "Canadá", "Brasil", "México"], load: "Carregar mais", empty: "Não há feedback correspondente.", error: "Não foi possível carregar os comentários. Tente novamente.", retry: "Tentar novamente", account: "Acesso do cliente" },
+  es: { back: "Volver al sitio", language: "Idioma", tag: "Comentarios del servicio", title: "Una visión más clara de la experiencia de compra.", text: "Mostramos comentarios revisados de clientes. No publicamos afirmaciones médicas o de eficacia.", all: "Todos", countries: ["Estados Unidos", "Canadá", "Brasil", "México"], load: "Cargar más", empty: "No hay comentarios coincidentes.", error: "No se pudieron cargar los comentarios. Inténtalo de nuevo.", retry: "Reintentar", account: "Acceso de clientes" },
+  fr: { back: "Retour au site", language: "Langue", tag: "Retours sur le service", title: "Une vision plus claire de l’expérience d’achat.", text: "Nous affichons des retours vérifiés de clients. Aucune allégation médicale ou d’efficacité n’est publiée.", all: "Tous", countries: ["États-Unis", "Canada", "Brésil", "Mexique"], load: "Afficher plus", empty: "Aucun retour correspondant.", error: "Impossible de charger les avis. Veuillez réessayer.", retry: "Réessayer", account: "Accès client" },
+  zh: { back: "返回网站", language: "语言", tag: "服务反馈", title: "更清晰地了解采购体验。", text: "展示经审核的客户提交内容；不发布医疗或药效类表述。", all: "全部", countries: ["美国", "加拿大", "巴西", "墨西哥"], load: "加载更多", empty: "暂时没有符合条件的反馈。", error: "反馈加载失败，请稍后重试。", retry: "重新加载", account: "客户登录" },
 } as const;
 
 const countryCodes = ["", "US", "CA", "BR", "MX"];
@@ -29,6 +29,7 @@ export default function FeedbackPage() {
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const t = pageCopy[locale];
 
   useEffect(() => {
@@ -44,16 +45,22 @@ export default function FeedbackPage() {
 
   async function load(reset: boolean) {
     setLoading(true);
+    setLoadError("");
     const nextOffset = reset ? 0 : offset;
     try {
       const params = new URLSearchParams({ locale, limit: "18", offset: String(nextOffset) });
       if (country) params.set("country", country);
-      const response = await fetch(`/api/feedback?${params}`, { cache: "no-store" });
-      const data = (await response.json()) as { records?: PublicFeedbackRecord[] };
+      const response = await fetch(`/api/feedback?${params}`);
+      const data = (await response.json()) as { records?: PublicFeedbackRecord[]; error?: string };
+      if (!response.ok) throw new Error(data.error || t.error);
       const incoming = data.records ?? [];
       setRecords((current) => (reset ? incoming : [...current, ...incoming]));
       setOffset(nextOffset + incoming.length);
       setHasMore(incoming.length === 18);
+    } catch {
+      setLoadError(t.error);
+      if (reset) setRecords([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
@@ -92,8 +99,8 @@ export default function FeedbackPage() {
             <button type="button" className={country === countryCodes[index] ? "active" : ""} onClick={() => setCountry(countryCodes[index])} key={countryCodes[index]}>{label}</button>
           ))}
         </div>
-        {records.length > 0 ? <div className="feedback-grid">{records.map((record) => <FeedbackCard record={record} locale={locale} key={record.id} />)}</div> : !loading && <p className="feedback-empty">{t.empty}</p>}
-        {hasMore && <button className="feedback-load-more" type="button" onClick={() => void load(false)} disabled={loading}>{loading ? "…" : t.load}</button>}
+        {loadError ? <div className="feedback-empty" role="alert"><p>{loadError}</p><button className="feedback-load-more" type="button" onClick={() => void load(true)} disabled={loading}>{loading ? "…" : t.retry}</button></div> : records.length > 0 ? <div className="feedback-grid">{records.map((record) => <FeedbackCard record={record} locale={locale} key={record.id} />)}</div> : !loading && <p className="feedback-empty">{t.empty}</p>}
+        {!loadError && hasMore && <button className="feedback-load-more" type="button" onClick={() => void load(false)} disabled={loading}>{loading ? "…" : t.load}</button>}
       </section>
     </main>
   );

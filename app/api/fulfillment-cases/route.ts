@@ -238,7 +238,7 @@ async function generationContext(): Promise<GenerationContext> {
   };
 }
 
-async function advanceDailyLedger(now: Date, settings: GeneratorSettings) {
+export async function advanceDailyLedger(now: Date, settings: GeneratorSettings) {
   const today = startOfUtcDay(now);
   const db = await getDb();
   const countResult = await db
@@ -277,7 +277,7 @@ async function advanceDailyLedger(now: Date, settings: GeneratorSettings) {
   return lastGenerated;
 }
 
-async function ensureIllustrativeCapacity(
+export async function ensureIllustrativeCapacity(
   now: Date,
   settings: GeneratorSettings,
 ) {
@@ -312,7 +312,7 @@ async function ensureIllustrativeCapacity(
  * display between 100 and 500 never deletes the currently visible 300 rows;
  * only normal daily rollover eventually expires the oldest sample rows.
  */
-async function pruneIllustrativeRows() {
+export async function pruneIllustrativeRows() {
   const d1 = await getD1();
   await d1
     .prepare(
@@ -332,13 +332,12 @@ async function pruneIllustrativeRows() {
 
 export async function GET() {
   try {
-    await ensureFulfillmentSchema();
     const settings = await generatorSettings();
 
     const now = new Date();
-    const generatedAt = await advanceDailyLedger(now, settings);
-    await ensureIllustrativeCapacity(now, settings);
-    await pruneIllustrativeRows();
+    // Public reads must remain read-only. Daily generation and pruning are
+    // handled by the scheduled Worker maintenance job.
+    const generatedAt = (await getMeta(LAST_GENERATED_KEY)) ?? isoDate(now);
 
     const db = await getDb();
     const sampleRows = await db
@@ -546,9 +545,7 @@ export async function GET() {
       },
       {
         headers: {
-          "Cache-Control": "no-store, no-cache, must-revalidate",
-          "CDN-Cache-Control": "no-store",
-          "Cloudflare-CDN-Cache-Control": "no-store",
+          "Cache-Control": "public, max-age=30, s-maxage=120, stale-while-revalidate=300",
         },
       },
     );
@@ -565,4 +562,13 @@ export async function GET() {
       },
     );
   }
+}
+
+export async function maintainFulfillmentLedger(now = new Date()) {
+  await ensureFulfillmentSchema();
+  const settings = await generatorSettings();
+  const generatedAt = await advanceDailyLedger(now, settings);
+  await ensureIllustrativeCapacity(now, settings);
+  await pruneIllustrativeRows();
+  return { generatedAt };
 }
