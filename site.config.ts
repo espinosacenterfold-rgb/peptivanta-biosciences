@@ -29,7 +29,7 @@ export const siteConfig = {
    *
    * 网站会自动生成 wa.me 链接，并自动带上客户选择的产品和询盘内容。
    */
-  whatsappNumber: "19863059927",
+  whatsappNumber: "+85246328271",
 
   /**
    * 企业邮箱修改说明：
