@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>PEPTIVANTA Sales CRM V3</title>
+  <meta name="description" content="PEPTIVANTA sales CRM workspace" />
+  <link rel="stylesheet" href="./v3.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand-row"><div class="brand-mark">P</div><div class="brand-copy"><strong>PEPTIVANTA</strong><span>Sales CRM</span></div></div>
+    <div class="workspace-chip"><span class="status-dot"></span><div><strong>Sales Workspace</strong><small>CRM V3 · 客户序列池</small></div></div>
+    <nav class="main-nav">
+      <button class="nav-item active" data-view="dashboard"><span class="nav-icon">⌂</span><span>客户工作台</span></button>
+      <button class="nav-item" data-view="customers"><span class="nav-icon">◎</span><span>客户 / 线索</span><span class="nav-count" id="customerCountBadge">0</span></button>
+      <button class="nav-item" data-view="pipeline"><span class="nav-icon">▥</span><span>销售管道</span></button>
+      <button class="nav-item" data-view="followups"><span class="nav-icon">◷</span><span>跟进日志</span><span class="nav-count warning" id="followCountBadge">0</span></button>
+      <button class="nav-item" data-view="orders"><span class="nav-icon">▤</span><span>订单</span></button>
+      <button class="nav-item" data-view="reports"><span class="nav-icon">↗</span><span>数据分析</span></button>
+    </nav>
+    <div class="nav-section-label">管理</div>
+    <nav class="main-nav secondary-nav"><button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span><span>组织与权限</span></button></nav>
+    <div class="sidebar-footer"><div class="user-avatar">AD</div><div class="user-meta"><strong>Administrator</strong><small>超级管理员</small></div></div>
+  </aside>
+
+  <main class="main-area">
+    <header class="topbar">
+      <div><h1 id="pageTitle">客户工作台</h1><p id="pageSubtitle">筛选客户序列后连续处理，双击客户进入居中详情</p></div>
+      <div class="topbar-actions">
+        <label class="global-search"><span>⌕</span><input id="globalSearch" type="search" placeholder="搜索客户、产品、负责人…" /></label>
+        <button class="button secondary" id="exportBtn">导出数据</button>
+        <button class="button primary" id="addCustomerBtn">＋ 新增客户</button>
+      </div>
+    </header>
+
+    <section class="view active" id="view-dashboard">
+      <div class="kpi-grid" id="kpiGrid"></div>
+      <div class="sequence-filter panel">
+        <div class="sequence-filter-title">
+          <div><span class="eyebrow">SEQUENCE FILTER</span><strong>客户序列筛选</strong><small>筛选结果会同步控制左侧客户池与详情弹窗的左右切换。</small></div>
+          <button class="text-button" id="resetPoolFilters">清空筛选</button>
+        </div>
+        <div class="filter-selects">
+          <label><span>跟进时效</span><select id="poolTimeFilter">
+            <option value="all">全部时间</option><option value="due">今日需跟进</option><option value="overdue">已逾期</option><option value="stale3">3天+未跟进</option><option value="stale7">7天+未跟进</option><option value="silent14">14天沉默</option>
+          </select></label>
+          <label><span>客户类型</span><select id="poolTypeFilter"><option value="all">全部类型</option></select></label>
+          <label><span>客户等级</span><select id="poolGradeFilter"><option value="all">全部等级</option><option>S</option><option>A</option><option>B</option><option>C</option><option>D</option></select></label>
+          <label><span>销售阶段</span><select id="poolStageFilter"><option value="all">全部阶段</option></select></label>
+          <label><span>负责人</span><select id="poolOwnerFilter"><option value="all">全部负责人</option></select></label>
+        </div>
+        <div class="active-filter-summary" id="activeFilterSummary"></div>
+      </div>
+
+      <div class="workspace-layout">
+        <section class="panel customer-pool-panel">
+          <div class="panel-heading pool-heading"><div><span class="eyebrow">CUSTOMER WORK POOL</span><h2>客户工作池</h2><p>单击预览；双击打开居中详情；左右切换严格跟随当前筛选序列。</p></div><div class="segmented" id="poolFilter"><button class="active" data-pool-filter="priority">优先</button><button data-pool-filter="mine">我的</button><button data-pool-filter="team">团队</button><button data-pool-filter="unowned">未归属</button></div></div>
+          <div class="pool-sort"><span id="poolCount">0 位客户</span><select id="poolSort"><option value="follow">按跟进优先级</option><option value="value">按机会金额</option><option value="grade">按客户等级</option><option value="last">按最长未跟进</option></select></div>
+          <div class="customer-pool" id="customerPool"></div>
+        </section>
+        <section class="panel customer-workspace" id="customerWorkspace"></section>
+      </div>
+    </section>
+
+    <section class="view" id="view-customers"><article class="panel full-panel"><div class="list-toolbar"><div class="filter-group"><button class="filter-chip active" data-customer-filter="all">全部</button><button class="filter-chip" data-customer-filter="hot">S / A重点</button><button class="filter-chip" data-customer-filter="silent">3天+未跟进</button><button class="filter-chip" data-customer-filter="quoted">已报价</button><button class="filter-chip" data-customer-filter="unowned">未归属</button><button class="filter-chip" data-customer-filter="protected">保护客户</button></div><span class="toolbar-meta" id="customerResultCount"></span></div><div class="table-wrap tall-table"><table class="data-table"><thead><tr><th>客户</th><th>标签</th><th>负责人</th><th>所属组</th><th>产品</th><th>阶段</th><th>最后跟进</th><th>下次跟进</th><th>机会金额</th><th></th></tr></thead><tbody id="customersBody"></tbody></table></div></article></section>
+
+    <section class="view" id="view-pipeline"><div class="pipeline-toolbar"><div><span class="eyebrow">DEAL PIPELINE</span><h2>销售管道</h2><p>固定列宽 + 管道内部横向滚动；拖动仅修改销售阶段，不改变客户负责人。</p></div><div class="pipeline-summary" id="pipelineSummary"></div></div><div class="kanban-shell"><div class="kanban" id="kanbanBoard"></div></div></section>
+
+    <section class="view" id="view-followups"><div class="followup-page-head"><div><span class="eyebrow">FOLLOW-UP LOG</span><h2>完整跟进日志</h2><p>必须记录跟了什么、客户反馈、下一步与下次跟进日期。</p></div><button class="button primary" id="quickFollowBtn">＋ 新建跟进</button></div><div class="followup-layout"><article class="panel"><div class="followup-filters"><select id="followOwnerFilter"><option value="all">全部负责人</option></select><select id="followTypeFilter"><option value="all">全部方式</option><option>WhatsApp</option><option>电话</option><option>邮件</option><option>其他</option></select><select id="followStatusFilter"><option value="all">全部状态</option><option value="overdue">逾期</option><option value="today">今日</option><option value="future">未来</option></select></div><div id="followupLog" class="followup-log"></div></article><aside class="panel followup-focus" id="followupFocus"></aside></div></section>
+
+    <section class="view" id="view-orders"><article class="panel full-panel"><div class="panel-heading"><div><span class="eyebrow">ORDERS</span><h2>订单与履约</h2><p>付款、物流、签收和复购生命周期。</p></div></div><div class="order-kpis" id="orderKpis"></div><div class="table-wrap"><table class="data-table"><thead><tr><th>订单号</th><th>客户</th><th>负责人</th><th>产品</th><th>金额</th><th>利润</th><th>付款</th><th>物流</th><th>Tracking</th><th>日期</th></tr></thead><tbody id="ordersBody"></tbody></table></div></article></section>
+
+    <section class="view" id="view-reports"><div class="report-grid"><article class="panel report-card wide"><div class="panel-heading"><div><span class="eyebrow">TEAM PERFORMANCE</span><h2>销售组表现</h2></div></div><div id="teamPerformance" class="rank-list padded"></div></article><article class="panel report-card"><div class="panel-heading"><div><span class="eyebrow">SOURCE</span><h2>客户来源</h2></div></div><div id="sourceChart" class="rank-list padded"></div></article><article class="panel report-card"><div class="panel-heading"><div><span class="eyebrow">OWNER</span><h2>负责人客户量</h2></div></div><div id="ownerChart" class="rank-list padded"></div></article><article class="panel report-card wide"><div class="panel-heading"><div><span class="eyebrow">PRODUCT</span><h2>产品需求热度</h2></div></div><div id="productChart" class="product-chart padded"></div></article></div></section>
+
+    <section class="view" id="view-settings"><div class="settings-tabs" id="settingsTabs"><button class="active" data-settings-tab="accounts">子账号</button><button data-settings-tab="teams">销售小组</button><button data-settings-tab="permissions">权限组</button><button data-settings-tab="whatsapp">WhatsApp账号</button></div><div id="settingsContent"></div></section>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop"></div>
+<div class="modal" id="customerModal"><div class="modal-header"><div><span class="eyebrow">CUSTOMER</span><h2>新增客户</h2></div><button class="icon-button" data-close-modal>×</button></div><form id="customerForm" class="form-body"><div class="form-grid"><label><span>客户姓名 *</span><input name="name" required></label><label><span>国家 *</span><input name="country" required></label><label><span>联系方式 / WhatsApp</span><input name="contact"></label><label><span>公司</span><input name="company"></label><label><span>客户类型</span><select name="customerType"><option>个人客户</option><option>经销商</option><option>零售商</option><option>机构采购</option><option>科研客户</option><option>品牌方</option><option>OEM/定制</option><option>其他</option></select></label><label><span>主要产品 *</span><input name="product" required></label><label><span>客户等级</span><select name="grade"><option>S</option><option selected>A</option><option>B</option><option>C</option><option>D</option></select></label><label><span>负责人</span><select name="owner" id="customerOwnerSelect"></select></label><label><span>所属销售组</span><select name="team" id="customerTeamSelect"></select></label><label><span>机会金额 USD</span><input type="number" name="value" value="0"></label><label class="span-2"><span>客户特征标签（逗号分隔）</span><input name="traits" placeholder="价格敏感, 文件敏感, 长期采购"></label></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>取消</button><button class="button primary">保存客户</button></div></form></div>
+
+<div class="modal modal-wide" id="followModal"><div class="modal-header"><div><span class="eyebrow">FOLLOW-UP</span><h2>记录一次跟进</h2></div><button class="icon-button" data-close-modal>×</button></div><form id="followForm" class="form-body"><div class="form-grid"><label><span>客户 *</span><select name="customerId" id="followCustomerSelect" required></select></label><label><span>跟进方式 *</span><select name="channel"><option>WhatsApp</option><option>电话</option><option>邮件</option><option>其他</option></select></label><label><span>跟进类型</span><select name="type"><option>日常跟进</option><option>需求确认</option><option>报价</option><option>议价</option><option>付款</option><option>物流</option><option>售后</option><option>复购</option></select></label><label><span>记录人</span><select name="author" id="followAuthorSelect"></select></label><label class="span-2"><span>本次具体跟进内容 *</span><textarea name="content" rows="4" required></textarea></label><label class="span-2"><span>客户反馈 *</span><textarea name="feedback" rows="3" required></textarea></label><label class="span-2"><span>下一步动作 *</span><input name="nextAction" required></label><label><span>下次跟进日期 *</span><input type="date" name="nextDate" required></label><label><span>跟进结果</span><select name="result"><option>继续跟进</option><option>等待客户</option><option>待付款</option><option>已成交</option><option>暂缓</option><option>无效</option></select></label></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>取消</button><button class="button primary">保存跟进记录</button></div></form></div>
+
+<div class="modal" id="accountModal"><div class="modal-header"><div><span class="eyebrow">ACCOUNT</span><h2>新增子账号</h2></div><button class="icon-button" data-close-modal>×</button></div><form id="accountForm" class="form-body"><div class="form-grid"><label><span>登录账号 *</span><input name="login" required></label><label><span>业务备注名 *</span><input name="displayName" required></label><label><span>权限组 *</span><select name="permissionGroup" id="accountPermissionSelect"></select></label><label><span>销售小组 *</span><select name="team" id="accountTeamSelect"></select></label><label><span>绑定 WhatsApp</span><select name="whatsapp" id="accountWaSelect"></select></label><label><span>账号状态</span><select name="status"><option>正常</option><option>停用</option></select></label></div><div class="modal-actions"><button type="button" class="button secondary" data-close-modal>取消</button><button class="button primary">创建账号</button></div></form></div>
+
+<div class="detail-overlay" id="detailOverlay" aria-hidden="true"><button class="sequence-nav sequence-prev" id="sequencePrev" aria-label="上一个客户"><span>‹</span><small id="prevCustomerName">上一个</small></button><div class="customer-detail-modal" id="customerDetailModal"><div class="detail-modal-head"><div><span class="eyebrow">CUSTOMER SEQUENCE</span><div class="sequence-position" id="sequencePosition">1 / 1</div></div><div class="detail-head-actions"><button class="button secondary small" id="detailFollowBtn">＋ 记录跟进</button><button class="icon-button" id="detailClose">×</button></div></div><div class="detail-modal-body" id="detailModalBody"></div></div><button class="sequence-nav sequence-next" id="sequenceNext" aria-label="下一个客户"><small id="nextCustomerName">下一个</small><span>›</span></button></div>
+
+<div class="toast" id="toast"></div>
+<script src="./v3.js"></script>
+</body>
+</html>
