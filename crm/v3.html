@@ -7,6 +7,7 @@
   <title>PEPTIVANTA Sales CRM V3</title>
   <meta name="description" content="PEPTIVANTA sales CRM workspace" />
   <link rel="stylesheet" href="./v3.css" />
+  <link rel="stylesheet" href="./v3-hotfix.css" />
 </head>
 <body>
 <div class="app-shell">
@@ -39,14 +40,9 @@
     <section class="view active" id="view-dashboard">
       <div class="kpi-grid" id="kpiGrid"></div>
       <div class="sequence-filter panel">
-        <div class="sequence-filter-title">
-          <div><span class="eyebrow">SEQUENCE FILTER</span><strong>客户序列筛选</strong><small>筛选结果会同步控制左侧客户池与详情弹窗的左右切换。</small></div>
-          <button class="text-button" id="resetPoolFilters">清空筛选</button>
-        </div>
+        <div class="sequence-filter-title"><div><span class="eyebrow">SEQUENCE FILTER</span><strong>客户序列筛选</strong><small>筛选结果会同步控制左侧客户池与详情弹窗的左右切换。</small></div><button class="text-button" id="resetPoolFilters">清空筛选</button></div>
         <div class="filter-selects">
-          <label><span>跟进时效</span><select id="poolTimeFilter">
-            <option value="all">全部时间</option><option value="due">今日需跟进</option><option value="overdue">已逾期</option><option value="stale3">3天+未跟进</option><option value="stale7">7天+未跟进</option><option value="silent14">14天沉默</option>
-          </select></label>
+          <label><span>跟进时效</span><select id="poolTimeFilter"><option value="all">全部时间</option><option value="due">今日需跟进</option><option value="overdue">已逾期</option><option value="stale3">3天+未跟进</option><option value="stale7">7天+未跟进</option><option value="silent14">14天沉默</option></select></label>
           <label><span>客户类型</span><select id="poolTypeFilter"><option value="all">全部类型</option></select></label>
           <label><span>客户等级</span><select id="poolGradeFilter"><option value="all">全部等级</option><option>S</option><option>A</option><option>B</option><option>C</option><option>D</option></select></label>
           <label><span>销售阶段</span><select id="poolStageFilter"><option value="all">全部阶段</option></select></label>
@@ -56,11 +52,7 @@
       </div>
 
       <div class="workspace-layout">
-        <section class="panel customer-pool-panel">
-          <div class="panel-heading pool-heading"><div><span class="eyebrow">CUSTOMER WORK POOL</span><h2>客户工作池</h2><p>单击预览；双击打开居中详情；左右切换严格跟随当前筛选序列。</p></div><div class="segmented" id="poolFilter"><button class="active" data-pool-filter="priority">优先</button><button data-pool-filter="mine">我的</button><button data-pool-filter="team">团队</button><button data-pool-filter="unowned">未归属</button></div></div>
-          <div class="pool-sort"><span id="poolCount">0 位客户</span><select id="poolSort"><option value="follow">按跟进优先级</option><option value="value">按机会金额</option><option value="grade">按客户等级</option><option value="last">按最长未跟进</option></select></div>
-          <div class="customer-pool" id="customerPool"></div>
-        </section>
+        <section class="panel customer-pool-panel"><div class="panel-heading pool-heading"><div><span class="eyebrow">CUSTOMER WORK POOL</span><h2>客户工作池</h2><p>单击预览；双击打开居中详情；左右切换严格跟随当前筛选序列。</p></div><div class="segmented" id="poolFilter"><button class="active" data-pool-filter="priority">优先</button><button data-pool-filter="mine">我的</button><button data-pool-filter="team">团队</button><button data-pool-filter="unowned">未归属</button></div></div><div class="pool-sort"><span id="poolCount">0 位客户</span><select id="poolSort"><option value="follow">按跟进优先级</option><option value="value">按机会金额</option><option value="grade">按客户等级</option><option value="last">按最长未跟进</option></select></div><div class="customer-pool" id="customerPool"></div></section>
         <section class="panel customer-workspace" id="customerWorkspace"></section>
       </div>
     </section>
