@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>PEPTIVANTA Sales CRM</title>
+  <meta name="description" content="PEPTIVANTA sales CRM workspace for leads, pipeline, follow-ups, orders and customer lifecycle management." />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark">P</div>
+        <div class="brand-copy">
+          <strong>PEPTIVANTA</strong>
+          <span>Sales CRM</span>
+        </div>
+        <button class="icon-button sidebar-close" id="sidebarClose" aria-label="关闭菜单">×</button>
+      </div>
+
+      <div class="workspace-chip">
+        <span class="status-dot"></span>
+        <div>
+          <strong>Sales Workspace</strong>
+          <small>本地演示模式</small>
+        </div>
+      </div>
+
+      <nav class="main-nav" aria-label="主导航">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="nav-icon">⌂</span><span>工作台</span>
+        </button>
+        <button class="nav-item" data-view="leads">
+          <span class="nav-icon">◎</span><span>线索 / 客户</span><span class="nav-count" id="leadCountBadge">0</span>
+        </button>
+        <button class="nav-item" data-view="pipeline">
+          <span class="nav-icon">▥</span><span>销售管道</span>
+        </button>
+        <button class="nav-item" data-view="followups">
+          <span class="nav-icon">◷</span><span>待办跟进</span><span class="nav-count warning" id="followCountBadge">0</span>
+        </button>
+        <button class="nav-item" data-view="orders">
+          <span class="nav-icon">▤</span><span>订单</span>
+        </button>
+        <button class="nav-item" data-view="reports">
+          <span class="nav-icon">↗</span><span>数据分析</span>
+        </button>
+      </nav>
+
+      <div class="nav-section-label">管理</div>
+      <nav class="main-nav secondary-nav">
+        <button class="nav-item" data-view="settings"><span class="nav-icon">⚙</span><span>系统设置</span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-avatar">ES</div>
+        <div class="user-meta">
+          <strong>Sales Admin</strong>
+          <small>管理员</small>
+        </div>
+        <button class="icon-button" title="更多">⋯</button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button mobile-menu" id="mobileMenu" aria-label="打开菜单">☰</button>
+          <div>
+            <h1 id="pageTitle">销售工作台</h1>
+            <p id="pageSubtitle">优先处理今天需要推进的客户与交易</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <label class="global-search">
+            <span>⌕</span>
+            <input id="globalSearch" type="search" placeholder="搜索客户、产品、国家…" autocomplete="off" />
+            <kbd>⌘K</kbd>
+          </label>
+          <button class="button secondary" id="exportBtn">导出数据</button>
+          <button class="button primary" id="addCustomerBtn">＋ 新增客户</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="dashboard-grid kpi-grid" id="kpiGrid"></div>
+
+        <div class="dashboard-grid main-dashboard-grid">
+          <article class="panel queue-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow">TODAY</span>
+                <h2>今天的销售队列</h2>
+                <p>参考 Close 的 Inbox 思路：先处理最需要行动的客户。</p>
+              </div>
+              <div class="segmented" id="queueFilter">
+                <button class="active" data-filter="all">全部</button>
+                <button data-filter="overdue">逾期</button>
+                <button data-filter="today">今日</button>
+              </div>
+            </div>
+            <div class="queue-list" id="todayQueue"></div>
+          </article>
+
+          <article class="panel funnel-panel">
+            <div class="panel-heading compact-heading">
+              <div>
+                <span class="eyebrow">PIPELINE</span>
+                <h2>销售漏斗</h2>
+                <p>按当前客户阶段查看机会分布。</p>
+              </div>
+              <button class="text-button" data-go-view="pipeline">打开管道 →</button>
+            </div>
+            <div id="funnelList" class="funnel-list"></div>
+            <div class="pipeline-health" id="pipelineHealth"></div>
+          </article>
+        </div>
+
+        <article class="panel">
+          <div class="panel-heading compact-heading">
+            <div>
+              <span class="eyebrow">RECENT LEADS</span>
+              <h2>最近客户</h2>
+            </div>
+            <button class="text-button" data-go-view="leads">查看全部 →</button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>客户</th><th>国家</th><th>需求产品</th><th>阶段</th><th>等级</th><th>下次跟进</th><th>机会金额</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="recentLeadsBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-leads">
+        <article class="panel full-panel">
+          <div class="list-toolbar">
+            <div class="filter-group">
+              <button class="filter-chip active" data-lead-filter="all">全部客户</button>
+              <button class="filter-chip" data-lead-filter="hot">S / A 重点</button>
+              <button class="filter-chip" data-lead-filter="unanswered">无回复</button>
+              <button class="filter-chip" data-lead-filter="quoted">已报价</button>
+              <button class="filter-chip" data-lead-filter="repeat">复购客户</button>
+            </div>
+            <div class="toolbar-meta"><span id="leadResultCount">0</span> 位客户</div>
+          </div>
+          <div class="table-wrap tall-table">
+            <table class="data-table leads-table">
+              <thead>
+                <tr>
+                  <th>客户</th><th>公司 / 类型</th><th>国家</th><th>来源</th><th>需求产品</th><th>阶段</th><th>等级</th><th>成交概率</th><th>下次跟进</th><th>机会金额</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="leadsBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-pipeline">
+        <div class="pipeline-toolbar">
+          <div>
+            <span class="eyebrow">DEAL PIPELINE</span>
+            <h2>销售管道</h2>
+            <p>拖动客户卡片即可更新销售阶段。优先级依据下次跟进时间排序。</p>
+          </div>
+          <div class="pipeline-summary" id="pipelineSummary"></div>
+        </div>
+        <div class="kanban" id="kanbanBoard"></div>
+      </section>
+
+      <section class="view" id="view-followups">
+        <div class="followup-layout">
+          <article class="panel">
+            <div class="panel-heading compact-heading">
+              <div><span class="eyebrow">TASKS</span><h2>待办跟进</h2><p>逾期、今日和未来安排集中处理。</p></div>
+              <div class="segmented" id="taskTabs">
+                <button class="active" data-task-filter="open">待处理</button>
+                <button data-task-filter="done">已完成</button>
+              </div>
+            </div>
+            <div id="followupList" class="task-list"></div>
+          </article>
+          <aside class="panel focus-card" id="focusCard"></aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-orders">
+        <article class="panel full-panel">
+          <div class="panel-heading compact-heading">
+            <div><span class="eyebrow">ORDERS</span><h2>订单管理</h2><p>付款、发货、Tracking 与利润集中查看。</p></div>
+            <button class="button secondary small" id="addDemoOrderBtn">＋ 添加订单</button>
+          </div>
+          <div class="order-kpis" id="orderKpis"></div>
+          <div class="table-wrap tall-table">
+            <table class="data-table">
+              <thead><tr><th>订单号</th><th>客户</th><th>产品</th><th>订单金额</th><th>成本</th><th>利润</th><th>付款</th><th>物流</th><th>Tracking</th><th>日期</th></tr></thead>
+              <tbody id="ordersBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-reports">
+        <div class="report-grid">
+          <article class="panel report-card wide">
+            <div class="panel-heading compact-heading"><div><span class="eyebrow">PERFORMANCE</span><h2>销售表现</h2><p>按月查看新增线索、成交与销售额。</p></div></div>
+            <div id="monthlyChart" class="bar-chart"></div>
+          </article>
+          <article class="panel report-card">
+            <div class="panel-heading compact-heading"><div><span class="eyebrow">SOURCE</span><h2>客户来源</h2></div></div>
+            <div id="sourceChart" class="rank-list"></div>
+          </article>
+          <article class="panel report-card">
+            <div class="panel-heading compact-heading"><div><span class="eyebrow">MARKET</span><h2>市场分布</h2></div></div>
+            <div id="countryChart" class="rank-list"></div>
+          </article>
+          <article class="panel report-card wide">
+            <div class="panel-heading compact-heading"><div><span class="eyebrow">PRODUCT DEMAND</span><h2>需求产品热度</h2></div></div>
+            <div id="productChart" class="product-chart"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="settings-layout">
+          <article class="panel settings-panel">
+            <div class="panel-heading compact-heading"><div><span class="eyebrow">WORKSPACE</span><h2>系统设置</h2><p>当前版本优先验证销售流程与界面。</p></div></div>
+            <div class="setting-row">
+              <div><strong>数据存储模式</strong><p>当前数据保存在本浏览器 localStorage，不会写入 GitHub。</p></div>
+              <span class="status-pill neutral">本地模式</span>
+            </div>
+            <div class="setting-row">
+              <div><strong>Cloudflare 上线建议</strong><p>UI 确认后接入 Cloudflare D1 + Access / 登录鉴权，才能成为多设备共享的正式 CRM。</p></div>
+              <span class="status-pill warning">待接入</span>
+            </div>
+            <div class="setting-row">
+              <div><strong>客户数据导出</strong><p>导出 JSON 作为备份，或迁移到后端数据库。</p></div>
+              <button class="button secondary small" id="settingsExportBtn">导出 JSON</button>
+            </div>
+            <div class="setting-row danger-row">
+              <div><strong>重置演示数据</strong><p>删除当前浏览器内的修改并恢复示例客户。</p></div>
+              <button class="button danger small" id="resetDataBtn">恢复演示</button>
+            </div>
+          </article>
+          <article class="panel settings-panel">
+            <div class="panel-heading compact-heading"><div><span class="eyebrow">DESIGN SYSTEM</span><h2>界面逻辑</h2></div></div>
+            <div class="design-notes">
+              <div><span>01</span><p><strong>行动优先</strong>：工作台先展示今天必须处理的人，不把销售员淹没在报表里。</p></div>
+              <div><span>02</span><p><strong>管道可视化</strong>：卡片式阶段推进，快速定位卡单和高价值客户。</p></div>
+              <div><span>03</span><p><strong>单客上下文</strong>：打开客户侧栏即可查看需求、报价、跟进、订单与物流摘要。</p></div>
+              <div><span>04</span><p><strong>信息密度</strong>：桌面端保持高密度，但关键状态使用统一色彩编码。</p></div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="customer-drawer" id="customerDrawer" aria-hidden="true">
+    <div id="drawerContent"></div>
+  </aside>
+
+  <div class="modal-backdrop" id="modalBackdrop"></div>
+  <div class="modal" id="customerModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-header">
+      <div><span class="eyebrow">NEW LEAD</span><h2 id="modalTitle">新增客户</h2></div>
+      <button class="icon-button" id="modalClose" aria-label="关闭">×</button>
+    </div>
+    <form id="customerForm" class="customer-form">
+      <div class="form-grid">
+        <label><span>客户姓名 *</span><input name="name" required placeholder="例如：Alex Morgan" /></label>
+        <label><span>国家 / 市场 *</span><input name="country" required placeholder="United States" /></label>
+        <label><span>WhatsApp / 联系方式</span><input name="contact" placeholder="+1 ... / email" /></label>
+        <label><span>公司 / 客户类型</span><input name="company" placeholder="Distributor / Individual" /></label>
+        <label><span>主要需求产品 *</span><input name="product" required placeholder="Tirzepatide 10mg" /></label>
+        <label><span>客户来源</span>
+          <select name="source"><option>Facebook Ads</option><option>WhatsApp</option><option>Website</option><option>Referral</option><option>Google</option><option>Other</option></select>
+        </label>
+        <label><span>销售阶段</span>
+          <select name="stage"><option value="new">新线索</option><option value="qualifying">需求确认</option><option value="quoted">已报价</option><option value="payment">待付款</option><option value="fulfillment">已付款 / 发货</option><option value="repeat">复购</option></select>
+        </label>
+        <label><span>客户等级</span>
+          <select name="grade"><option value="A">A · 高意向</option><option value="B" selected>B · 普通意向</option><option value="C">C · 低意向</option><option value="S">S · 战略客户</option><option value="D">D · 观察</option></select>
+        </label>
+        <label><span>预计机会金额 (USD)</span><input name="value" type="number" min="0" step="1" placeholder="500" /></label>
+        <label><span>下次跟进日期</span><input name="nextFollowUp" type="date" /></label>
+      </div>
+      <label class="full-label"><span>首次需求 / 备注</span><textarea name="note" rows="4" placeholder="记录客户最关心的问题，例如价格、COA、MOQ、物流、样品等。"></textarea></label>
+      <div class="modal-actions"><button type="button" class="button secondary" id="modalCancel">取消</button><button type="submit" class="button primary">保存客户</button></div>
+    </form>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <input type="file" id="importFile" accept="application/json" hidden />
+
+  <script src="./app.js"></script>
+</body>
+</html>
