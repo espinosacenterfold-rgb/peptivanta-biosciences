@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T01:08:00+08:00
-Stabilized organization/account UI by removing competing sidebar and submit handlers. Cost/profit permissions are now reserved for super administrators and hidden from non-super-admin CRM views.
+2026-08-24T01:24:00+08:00
+Team leaders can sell directly: newly created customers default to the leader as owner and remain invisible to sales members unless explicitly reassigned.
