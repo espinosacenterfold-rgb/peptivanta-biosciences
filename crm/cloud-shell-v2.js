@@ -113,7 +113,7 @@
   }
 
   function escapeHtml(v) {
-    return String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+    return String(v ?? '').replace(/[&<>\"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '\"':'&quot;', "'":'&#39;' }[c]));
   }
 
   function enhanceAccountForm(d) {
@@ -244,7 +244,7 @@
       try { old = JSON.parse(oldText || '{}'); } catch (_) {}
 
       if (user.permissionGroup === '超级管理员' && (remote.customers || []).length === 0 && (old.customers || []).length > 0 && !localStorage.getItem('pv-cloud-migration-choice')) {
-        const yes = confirm(`检测到本机已有 ${(old.customers || []).length} 位客户，而数据库目前为空。\n\n确定：迁移本机数据到数据库。\n取消：使用空数据库。`);
+        const yes = confirm(`检测到本机已有 ${(old.customers || []).length} 位客户，而数据库目前为空。\n\n确定：迁移本机数据到数据库。\n取消：清空本机旧数据并使用空数据库。`);
         localStorage.setItem('pv-cloud-migration-choice', yes ? 'import' : 'empty');
         if (yes) {
           setStage('正在迁移数据…', '正在把本机客户写入数据库');
