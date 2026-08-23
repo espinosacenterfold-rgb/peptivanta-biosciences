@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T07:08:00+08:00
-Simplified the customer workbench for execution: compact KPI strip, collapsible filters, denser customer cards, and a focused right-hand follow-up pane that prioritizes customer identity, rep-entered registration content, the latest follow-up, and the next action while moving full dossier/history into the customer detail view.
+2026-08-24T07:11:00+08:00
+Simplified follow-up recording: focus on customer feedback, what the rep did, next action and next follow-up date; secondary channel/type/author/objection fields are collapsed, with quick result, feedback, next-action and follow-up-date shortcuts.
