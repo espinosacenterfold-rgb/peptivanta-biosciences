@@ -1,145 +1,45 @@
 import { requireUser, listUsers, usersToAccounts, ROLE_DEFS, roleDef, hasPermission, parseManagedTeams, hashPassword, json, nowIso, audit, ensureState } from '../_lib/auth.js';
 
 function allowedTeamsFor(user){
-  const d=roleDef(user);
-  if(d.scope==='all')return null;
-  if(d.scope==='managed_teams'){
-    const a=parseManagedTeams(user);
-    return a.length?a:(user.team&&user.team!=='—'?[user.team]:[]);
-  }
-  return user.team&&user.team!=='—'?[user.team]:[];
+  const d=roleDef(user);if(d.scope==='all')return null;if(d.scope==='managed_teams'){const a=parseManagedTeams(user);return a.length?a:(user.team&&user.team!=='—'?[user.team]:[]);}return user.team&&user.team!=='—'?[user.team]:[];
 }
 function cleanTeams(value){return [...new Set((Array.isArray(value)?value:[]).map(x=>String(x||'').trim()).filter(x=>x&&x!=='—'&&x.length<=80))];}
-function cleanWhatsapps(body){
-  const raw=Array.isArray(body.whatsappAccounts)?body.whatsappAccounts:(body.whatsapp&&body.whatsapp!=='—'?[body.whatsapp]:[]);
-  return [...new Set(raw.map(x=>String(x||'').trim()).filter(x=>x&&x!=='—'&&x.length<=80))];
-}
-function normalizeOrg(permissionGroup,teamInput,managedInput){
-  const rawTeam=String(teamInput||'').trim(),managed=cleanTeams(managedInput);
-  if(permissionGroup==='超级管理员')return{team:'—',managedTeams:[]};
-  if(permissionGroup==='一级管理员'){
-    if(!managed.length)return{error:'managed_teams_required'};
-    return{team:'—',managedTeams:managed};
-  }
-  if(!rawTeam||rawTeam==='—')return{error:'team_required'};
-  return{team:rawTeam,managedTeams:[]};
-}
-function canManageTarget(actor,targetGroup,targetTeam){
-  if(actor.permission_group==='超级管理员')return Boolean(ROLE_DEFS[targetGroup]);
-  if(actor.permission_group==='一级管理员'){
-    if(!['二级管理员 / 组长','普通销售'].includes(targetGroup))return false;
-    const teams=allowedTeamsFor(actor)||[];
-    return teams.includes(targetTeam);
-  }
-  return false;
-}
-function validateIdentity(body){
-  const username=String(body.username||'').trim().toLowerCase(),displayName=String(body.displayName||'').trim(),permissionGroup=String(body.permissionGroup||'');
-  if(!/^[a-z0-9._-]{3,40}$/.test(username))return{error:'invalid_username'};
-  if(displayName.length<2||displayName.length>60)return{error:'invalid_display_name'};
-  if(!ROLE_DEFS[permissionGroup])return{error:'invalid_permission_group'};
-  return{username,displayName,permissionGroup};
-}
+function cleanWhatsapps(body){const raw=Array.isArray(body.whatsappAccounts)?body.whatsappAccounts:(body.whatsapp&&body.whatsapp!=='—'?[body.whatsapp]:[]);return [...new Set(raw.map(x=>String(x||'').trim()).filter(x=>x&&x!=='—'&&x.length<=80))];}
+function normalizeOrg(permissionGroup,teamInput,managedInput){const rawTeam=String(teamInput||'').trim(),managed=cleanTeams(managedInput);if(permissionGroup==='超级管理员')return{team:'—',managedTeams:[]};if(permissionGroup==='一级管理员'){if(!managed.length)return{error:'managed_teams_required'};return{team:'—',managedTeams:managed};}if(!rawTeam||rawTeam==='—')return{error:'team_required'};return{team:rawTeam,managedTeams:[]};}
+function canManageTarget(actor,targetGroup,targetTeam){if(actor.permission_group==='超级管理员')return Boolean(ROLE_DEFS[targetGroup]);if(actor.permission_group==='一级管理员'){if(!['二级管理员 / 组长','普通销售'].includes(targetGroup))return false;return (allowedTeamsFor(actor)||[]).includes(targetTeam);}return false;}
+function validateIdentity(body){const username=String(body.username||'').trim().toLowerCase(),displayName=String(body.displayName||'').trim(),permissionGroup=String(body.permissionGroup||'');if(!/^[a-z0-9._-]{3,40}$/.test(username))return{error:'invalid_username'};if(displayName.length<2||displayName.length>60)return{error:'invalid_display_name'};if(!ROLE_DEFS[permissionGroup])return{error:'invalid_permission_group'};return{username,displayName,permissionGroup};}
+async function displayNameTaken(db,name,excludeId=0){const r=await db.prepare('SELECT id FROM users WHERE display_name=? AND id<>?').bind(name,Number(excludeId||0)).first();return Boolean(r);}
 
-async function validateWhatsappAssignments(db,actor,names){
-  if(!names.length)return{rows:[]};
-  const marks=names.map(()=>'?').join(',');
-  const r=await db.prepare(`SELECT w.name,w.owner_user_id,u.team AS owner_team FROM whatsapp_accounts w LEFT JOIN users u ON u.id=w.owner_user_id WHERE w.name IN (${marks})`).bind(...names).all();
-  const rows=r.results||[];
-  if(rows.length!==names.length)return{error:'whatsapp_not_found'};
-  if(actor.permission_group==='超级管理员')return{rows};
-  const allowed=allowedTeamsFor(actor)||[];
-  for(const w of rows){if(w.owner_user_id && !allowed.includes(w.owner_team))return{error:'whatsapp_forbidden'};}
-  return{rows};
-}
-async function setWhatsappAssignments(db,targetId,names){
-  await db.prepare('UPDATE whatsapp_accounts SET owner_user_id=NULL,updated_at=? WHERE owner_user_id=?').bind(nowIso(),targetId).run();
-  if(!names.length)return;
-  const marks=names.map(()=>'?').join(',');
-  await db.prepare(`UPDATE whatsapp_accounts SET owner_user_id=?,updated_at=? WHERE name IN (${marks})`).bind(targetId,nowIso(),...names).run();
-}
+async function validateWhatsappAssignments(db,actor,names){if(!names.length)return{rows:[]};const marks=names.map(()=>'?').join(','),r=await db.prepare(`SELECT w.name,w.owner_user_id,u.team AS owner_team FROM whatsapp_accounts w LEFT JOIN users u ON u.id=w.owner_user_id WHERE w.name IN (${marks})`).bind(...names).all(),rows=r.results||[];if(rows.length!==names.length)return{error:'whatsapp_not_found'};if(actor.permission_group==='超级管理员')return{rows};const allowed=allowedTeamsFor(actor)||[];for(const w of rows){if(w.owner_user_id&&!allowed.includes(w.owner_team))return{error:'whatsapp_forbidden'};}return{rows};}
+async function setWhatsappAssignments(db,targetId,names){await db.prepare('UPDATE whatsapp_accounts SET owner_user_id=NULL,updated_at=? WHERE owner_user_id=?').bind(nowIso(),targetId).run();if(!names.length)return;const marks=names.map(()=>'?').join(',');await db.prepare(`UPDATE whatsapp_accounts SET owner_user_id=?,updated_at=? WHERE name IN (${marks})`).bind(targetId,nowIso(),...names).run();}
 
-async function migrateOwnedBusinessData(db,target,newDisplayName,newOrg){
-  const row=await ensureState(db);let state={};try{state=JSON.parse(row.data||'{}')}catch{return;}
-  const oldName=target.display_name,newName=newDisplayName||oldName;
-  const singleTeam=(newOrg.team&&newOrg.team!=='—')?newOrg.team:null;
-  let changed=false;
-  for(const c of (state.customers||[])){
-    const owns=Number(c.ownerUserId||0)===Number(target.id)||c.owner===oldName;
-    if(!owns)continue;
-    if(c.owner!==newName){c.owner=newName;changed=true;}
-    if(Number(c.ownerUserId||0)!==Number(target.id)){c.ownerUserId=Number(target.id);changed=true;}
-    if(singleTeam&&c.team!==singleTeam){c.team=singleTeam;changed=true;}
-    for(const t of (c.timeline||[])){if(t.author===oldName){t.author=newName;changed=true;}}
-  }
-  for(const o of (state.orders||[])){if(o.owner===oldName){o.owner=newName;changed=true;}}
-  for(const t of (state.teams||[])){if(t.manager===oldName){t.manager=newName;changed=true;}}
-  if(!changed)return;
-  await db.prepare('UPDATE app_state SET data=?,revision=revision+1,updated_at=? WHERE id=1').bind(JSON.stringify(state),nowIso()).run();
-}
+async function migrateOwnedBusinessData(db,target,newDisplayName,newOrg){const row=await ensureState(db);let state={};try{state=JSON.parse(row.data||'{}')}catch{return;}const oldName=target.display_name,newName=newDisplayName||oldName,singleTeam=(newOrg.team&&newOrg.team!=='—')?newOrg.team:null;let changed=false;for(const c of(state.customers||[])){const owns=Number(c.ownerUserId||0)===Number(target.id)||c.owner===oldName;if(!owns)continue;if(c.owner!==newName){c.owner=newName;changed=true;}if(Number(c.ownerUserId||0)!==Number(target.id)){c.ownerUserId=Number(target.id);changed=true;}if(singleTeam&&c.team!==singleTeam){c.team=singleTeam;changed=true;}for(const t of(c.timeline||[])){if(t.author===oldName){t.author=newName;changed=true;}}}for(const o of(state.orders||[])){if(o.owner===oldName){o.owner=newName;changed=true;}}for(const t of(state.teams||[])){if(t.manager===oldName){t.manager=newName;changed=true;}}if(changed)await db.prepare('UPDATE app_state SET data=?,revision=revision+1,updated_at=? WHERE id=1').bind(JSON.stringify(state),nowIso()).run();}
 
-export async function onRequestGet(context){
-  try{
-    const a=await requireUser(context);if(a.response)return a.response;
-    if(!hasPermission(a.user,'子账号管理'))return json({ok:false,error:'forbidden'},403);
-    await context.env.DB.prepare("UPDATE users SET team='—',managed_teams='[]' WHERE permission_group='超级管理员' AND (team<>'—' OR managed_teams<>'[]')").run();
-    let users=await listUsers(context.env.DB);const teams=allowedTeamsFor(a.user);
-    if(teams)users=users.filter(u=>u.id===a.user.id||teams.includes(u.team)||parseManagedTeams(u).some(t=>teams.includes(t)));
-    return json({ok:true,accounts:usersToAccounts(users)});
-  }catch(e){return json({ok:false,error:'users_get_failed',message:e?.message||String(e)},500);}
-}
+export async function onRequestGet(context){try{const a=await requireUser(context);if(a.response)return a.response;if(!hasPermission(a.user,'子账号管理'))return json({ok:false,error:'forbidden'},403);await context.env.DB.prepare("UPDATE users SET team='—',managed_teams='[]' WHERE permission_group='超级管理员' AND (team<>'—' OR managed_teams<>'[]')").run();let users=await listUsers(context.env.DB);const teams=allowedTeamsFor(a.user);if(teams)users=users.filter(u=>u.id===a.user.id||teams.includes(u.team)||parseManagedTeams(u).some(t=>teams.includes(t)));return json({ok:true,accounts:usersToAccounts(users)});}catch(e){return json({ok:false,error:'users_get_failed',message:e?.message||String(e)},500);}}
 
 export async function onRequestPost(context){
   try{
-    const a=await requireUser(context);if(a.response)return a.response;
-    if(!hasPermission(a.user,'子账号管理'))return json({ok:false,error:'forbidden'},403);
-    const body=await context.request.json(),v=validateIdentity(body);if(v.error)return json({ok:false,error:v.error},400);
-    const org=normalizeOrg(v.permissionGroup,body.team,body.managedTeams);if(org.error)return json({ok:false,error:org.error},400);
-    if(!canManageTarget(a.user,v.permissionGroup,org.team))return json({ok:false,error:'forbidden_target_scope'},403);
-    if(v.permissionGroup==='一级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'forbidden_target_role'},403);
-    if(v.permissionGroup==='超级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'super_admin_required'},403);
-    const password=String(body.password||'');if(password.length<4)return json({ok:false,error:'password_too_short',min:4},400);
-    const whatsappAccounts=cleanWhatsapps(body),wv=await validateWhatsappAssignments(context.env.DB,a.user,whatsappAccounts);if(wv.error)return json({ok:false,error:wv.error},400);
+    const a=await requireUser(context);if(a.response)return a.response;if(!hasPermission(a.user,'子账号管理'))return json({ok:false,error:'forbidden'},403);
+    const body=await context.request.json(),v=validateIdentity(body);if(v.error)return json({ok:false,error:v.error},400);if(await displayNameTaken(context.env.DB,v.displayName))return json({ok:false,error:'display_name_exists'},409);
+    const org=normalizeOrg(v.permissionGroup,body.team,body.managedTeams);if(org.error)return json({ok:false,error:org.error},400);if(!canManageTarget(a.user,v.permissionGroup,org.team))return json({ok:false,error:'forbidden_target_scope'},403);if(v.permissionGroup==='一级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'forbidden_target_role'},403);if(v.permissionGroup==='超级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'super_admin_required'},403);
+    const password=String(body.password||'');if(password.length<4)return json({ok:false,error:'password_too_short',min:4},400);const whatsappAccounts=cleanWhatsapps(body),wv=await validateWhatsappAssignments(context.env.DB,a.user,whatsappAccounts);if(wv.error)return json({ok:false,error:wv.error},400);
     const hp=await hashPassword(password),now=nowIso();
-    try{
-      const r=await context.env.DB.prepare(`INSERT INTO users(username,password_hash,password_salt,display_name,permission_group,team,managed_teams,is_active,must_change_password,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
-        .bind(v.username,hp.hash,hp.salt,v.displayName,v.permissionGroup,org.team,JSON.stringify(org.managedTeams),body.status==='停用'?0:1,body.mustChangePassword===false?0:1,now,now).run();
-      const id=Number(r.meta?.last_row_id||0);await setWhatsappAssignments(context.env.DB,id,whatsappAccounts);
-      await audit(context.env.DB,a.user,'create_user','user',String(id),{username:v.username,permissionGroup:v.permissionGroup,team:org.team,managedTeams:org.managedTeams,whatsappAccounts});
-      return json({ok:true,id,username:v.username,displayName:v.displayName,loginReady:true});
-    }catch(e){if(String(e?.message||'').toLowerCase().includes('unique'))return json({ok:false,error:'username_exists'},409);throw e;}
+    try{const r=await context.env.DB.prepare(`INSERT INTO users(username,password_hash,password_salt,display_name,permission_group,team,managed_teams,is_active,must_change_password,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(v.username,hp.hash,hp.salt,v.displayName,v.permissionGroup,org.team,JSON.stringify(org.managedTeams),body.status==='停用'?0:1,body.mustChangePassword===false?0:1,now,now).run();const id=Number(r.meta?.last_row_id||0);await setWhatsappAssignments(context.env.DB,id,whatsappAccounts);await audit(context.env.DB,a.user,'create_user','user',String(id),{username:v.username,permissionGroup:v.permissionGroup,team:org.team,managedTeams:org.managedTeams,whatsappAccounts});return json({ok:true,id,username:v.username,displayName:v.displayName,loginReady:true});}catch(e){if(String(e?.message||'').toLowerCase().includes('unique'))return json({ok:false,error:'username_exists'},409);throw e;}
   }catch(e){return json({ok:false,error:'users_create_failed',message:e?.message||String(e)},500);}
 }
 
 export async function onRequestPatch(context){
   try{
-    const a=await requireUser(context);if(a.response)return a.response;
-    if(!hasPermission(a.user,'子账号管理'))return json({ok:false,error:'forbidden'},403);
-    const body=await context.request.json(),id=Number(body.id||0),username=String(body.username||'').trim().toLowerCase();
-    if(!id&&!username)return json({ok:false,error:'missing_target'},400);
-    const target=id?await context.env.DB.prepare('SELECT * FROM users WHERE id=?').bind(id).first():await context.env.DB.prepare('SELECT * FROM users WHERE username=?').bind(username).first();
-    if(!target)return json({ok:false,error:'not_found'},404);
-    const targetId=Number(target.id),permissionGroup=String(body.permissionGroup||target.permission_group);
-    if(!ROLE_DEFS[permissionGroup])return json({ok:false,error:'invalid_permission_group'},400);
-    if(permissionGroup==='超级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'super_admin_required'},403);
-    const managedSource=Array.isArray(body.managedTeams)?body.managedTeams:parseManagedTeams(target),teamSource=body.team!==undefined?body.team:target.team;
-    const org=normalizeOrg(permissionGroup,teamSource,managedSource);if(org.error)return json({ok:false,error:org.error},400);
-    if(!canManageTarget(a.user,permissionGroup,org.team)&&a.user.id!==targetId)return json({ok:false,error:'forbidden_target_scope'},403);
-    const displayName=String(body.displayName||target.display_name).trim();if(displayName.length<2||displayName.length>60)return json({ok:false,error:'invalid_display_name'},400);
-    const active=body.status?body.status!=='停用':Boolean(target.is_active),now=nowIso();
-    let whatsappAccounts=null;
-    if(body.whatsappAccounts!==undefined||body.whatsapp!==undefined){whatsappAccounts=cleanWhatsapps(body);const wv=await validateWhatsappAssignments(context.env.DB,a.user,whatsappAccounts);if(wv.error)return json({ok:false,error:wv.error},400);}
-    await context.env.DB.prepare('UPDATE users SET display_name=?,permission_group=?,team=?,managed_teams=?,is_active=?,updated_at=? WHERE id=?')
-      .bind(displayName,permissionGroup,org.team,JSON.stringify(org.managedTeams),active?1:0,now,targetId).run();
-    if(whatsappAccounts!==null)await setWhatsappAssignments(context.env.DB,targetId,whatsappAccounts);
-    if(body.password!==undefined){
-      const p=String(body.password||'');if(p.length<4)return json({ok:false,error:'password_too_short',min:4},400);
-      const hp=await hashPassword(p);
-      await context.env.DB.prepare('UPDATE users SET password_hash=?,password_salt=?,must_change_password=?,updated_at=? WHERE id=?').bind(hp.hash,hp.salt,body.mustChangePassword===false?0:1,now,targetId).run();
-      await context.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(targetId).run();
-    }
+    const a=await requireUser(context);if(a.response)return a.response;if(!hasPermission(a.user,'子账号管理'))return json({ok:false,error:'forbidden'},403);
+    const body=await context.request.json(),id=Number(body.id||0),username=String(body.username||'').trim().toLowerCase();if(!id&&!username)return json({ok:false,error:'missing_target'},400);
+    const target=id?await context.env.DB.prepare('SELECT * FROM users WHERE id=?').bind(id).first():await context.env.DB.prepare('SELECT * FROM users WHERE username=?').bind(username).first();if(!target)return json({ok:false,error:'not_found'},404);
+    const targetId=Number(target.id),permissionGroup=String(body.permissionGroup||target.permission_group);if(!ROLE_DEFS[permissionGroup])return json({ok:false,error:'invalid_permission_group'},400);if(permissionGroup==='超级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'super_admin_required'},403);
+    const managedSource=Array.isArray(body.managedTeams)?body.managedTeams:parseManagedTeams(target),teamSource=body.team!==undefined?body.team:target.team,org=normalizeOrg(permissionGroup,teamSource,managedSource);if(org.error)return json({ok:false,error:org.error},400);if(!canManageTarget(a.user,permissionGroup,org.team)&&a.user.id!==targetId)return json({ok:false,error:'forbidden_target_scope'},403);
+    const displayName=String(body.displayName||target.display_name).trim();if(displayName.length<2||displayName.length>60)return json({ok:false,error:'invalid_display_name'},400);if(await displayNameTaken(context.env.DB,displayName,targetId))return json({ok:false,error:'display_name_exists'},409);
+    const active=body.status?body.status!=='停用':Boolean(target.is_active),now=nowIso();let whatsappAccounts=null;if(body.whatsappAccounts!==undefined||body.whatsapp!==undefined){whatsappAccounts=cleanWhatsapps(body);const wv=await validateWhatsappAssignments(context.env.DB,a.user,whatsappAccounts);if(wv.error)return json({ok:false,error:wv.error},400);}
+    await context.env.DB.prepare('UPDATE users SET display_name=?,permission_group=?,team=?,managed_teams=?,is_active=?,updated_at=? WHERE id=?').bind(displayName,permissionGroup,org.team,JSON.stringify(org.managedTeams),active?1:0,now,targetId).run();if(whatsappAccounts!==null)await setWhatsappAssignments(context.env.DB,targetId,whatsappAccounts);
+    if(body.password!==undefined){const p=String(body.password||'');if(p.length<4)return json({ok:false,error:'password_too_short',min:4},400);const hp=await hashPassword(p);await context.env.DB.prepare('UPDATE users SET password_hash=?,password_salt=?,must_change_password=?,updated_at=? WHERE id=?').bind(hp.hash,hp.salt,body.mustChangePassword===false?0:1,now,targetId).run();await context.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(targetId).run();}
     if(displayName!==target.display_name||org.team!==target.team)await migrateOwnedBusinessData(context.env.DB,target,displayName,org);
-    await audit(context.env.DB,a.user,'update_user','user',String(targetId),{username:target.username,oldDisplayName:target.display_name,displayName,permissionGroup,team:org.team,managedTeams:org.managedTeams,active,whatsappAccounts,passwordChanged:body.password!==undefined});
-    return json({ok:true,id:targetId,username:target.username,displayName});
+    await audit(context.env.DB,a.user,'update_user','user',String(targetId),{username:target.username,oldDisplayName:target.display_name,displayName,permissionGroup,team:org.team,managedTeams:org.managedTeams,active,whatsappAccounts,passwordChanged:body.password!==undefined});return json({ok:true,id:targetId,username:target.username,displayName});
   }catch(e){return json({ok:false,error:'users_update_failed',message:e?.message||String(e)},500);}
 }
