@@ -14,6 +14,21 @@ function orderAllowed(user,o,customerMap){
 function sanitizeIncoming(candidate){
   const out=safeClone(candidate);out.customers=Array.isArray(out.customers)?out.customers:[];out.orders=Array.isArray(out.orders)?out.orders:[];out.teams=Array.isArray(out.teams)?out.teams:[];out.whatsapp=Array.isArray(out.whatsapp)?out.whatsapp:[];return out;
 }
+function normalizeNewCustomerOwnership(user,c){
+  const x={...c},def=roleDef(user);
+  if(def.scope==='owner'){
+    x.owner=user.display_name;
+    x.team=user.team;
+    return x;
+  }
+  if(def.scope==='team'){
+    x.team=user.team;
+    const owner=String(x.owner||'').trim();
+    if(!owner||owner==='未归属'||owner==='—')x.owner=user.display_name;
+    return x;
+  }
+  return x;
+}
 function mergeState(current,candidate,user){
   candidate=sanitizeIncoming(candidate);const def=roleDef(user);
   if(def.scope==='all'){
@@ -25,7 +40,11 @@ function mergeState(current,candidate,user){
     const n=incomingCustomers.get(c.id);if(!n){mergedCustomers.push(c);continue;}
     const x={...c,...n};if(def.scope==='owner'){x.owner=user.display_name;x.team=user.team;}if(!canAssignCustomer(user,x)){x.owner=c.owner;x.team=c.team;}mergedCustomers.push(x);
   }
-  for(const n of candidate.customers||[]){if(curCustomers.has(n.id))continue;const x={...n};if(def.scope==='owner'){x.owner=user.display_name;x.team=user.team;}if(customerAllowedNew(user,x))mergedCustomers.push(x);}
+  for(const n of candidate.customers||[]){
+    if(curCustomers.has(n.id))continue;
+    const x=normalizeNewCustomerOwnership(user,n);
+    if(customerAllowedNew(user,x))mergedCustomers.push(x);
+  }
   next.customers=mergedCustomers;
   const globalCustomerMap=byId(mergedCustomers),curOrders=byId(current.orders),incomingOrders=byId(candidate.orders),mergedOrders=[];
   for(const o of current.orders||[]){
