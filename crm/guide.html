@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PEPTIVANTA CRM 新手使用说明</title>
+<style>
+:root{--bg:#f5f6f8;--panel:#fff;--text:#172033;--muted:#667085;--line:#dfe3e8;--nav:#111827;--blue:#2457a7;--soft:#eef4ff;--warn:#fff7e6;--danger:#fff1f0;--ok:#edf8f1}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;font-size:15px;line-height:1.7}.layout{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:100vh}.side{background:var(--nav);color:#fff;padding:24px 18px;position:sticky;top:0;height:100vh;overflow:auto}.brand{font-weight:700;font-size:17px;margin-bottom:4px}.sub{font-size:12px;color:#aab3c2;margin-bottom:24px}.toc a{display:block;color:#d8dee8;text-decoration:none;padding:9px 10px;border-radius:5px;font-size:13px;margin:2px 0}.toc a:hover{background:#1f2937;color:#fff}.main{padding:34px 42px 70px;max-width:1180px;width:100%;margin:0 auto}h1{font-size:28px;margin:0 0 8px}h2{font-size:20px;margin:34px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}h3{font-size:16px;margin:20px 0 8px}.lead{color:var(--muted);margin:0 0 24px}.card{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:18px 20px;margin:12px 0}.steps{counter-reset:step}.step{position:relative;padding:14px 14px 14px 54px;border-bottom:1px solid #edf0f3}.step:last-child{border-bottom:0}.step:before{counter-increment:step;content:counter(step);position:absolute;left:12px;top:14px;width:28px;height:28px;border-radius:50%;background:#202938;color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}.step b{display:block;margin-bottom:3px}.note,.warning,.success{padding:12px 14px;border-left:3px solid #8b95a5;background:#f7f8fa;margin:12px 0}.warning{background:var(--warn);border-color:#d69a28}.success{background:var(--ok);border-color:#3b8a5b}.danger{background:var(--danger);border-color:#c64c4c}.tag{display:inline-block;border:1px solid #d5dae1;background:#fff;border-radius:4px;padding:2px 7px;font-size:12px;margin:2px 4px 2px 0}.kbd{display:inline-block;border:1px solid #cdd3da;border-bottom-width:2px;background:#fff;border-radius:4px;padding:0 6px;font-size:12px}.flow{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#111827;color:#e5e7eb;border-radius:6px;padding:12px 14px;overflow:auto;font-size:13px}.table{width:100%;border-collapse:collapse;background:#fff}.table th,.table td{border:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}.table th{background:#f7f8fa;font-size:13px}.check li{margin:6px 0}.top-actions{display:flex;gap:10px;margin:18px 0 26px}.btn{display:inline-block;text-decoration:none;background:#202938;color:#fff;padding:9px 14px;border-radius:5px;font-size:13px}.btn.secondary{background:#fff;color:#273142;border:1px solid var(--line)}@media(max-width:850px){.layout{display:block}.side{position:relative;height:auto}.toc{display:none}.main{padding:24px 18px}.table{font-size:13px}}
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side">
+  <div class="brand">PEPTIVANTA CRM</div>
+  <div class="sub">新手使用说明 · 业务员 / 管理员</div>
+  <nav class="toc">
+    <a href="#start">1. 第一次使用</a>
+    <a href="#customer">2. 新增客户</a>
+    <a href="#workspace">3. 客户工作台</a>
+    <a href="#detail">4. 客户详情与编辑</a>
+    <a href="#follow">5. 正确记录跟进</a>
+    <a href="#result">6. 跟进结果与标签</a>
+    <a href="#pipeline">7. 销售管道</a>
+    <a href="#order">8. 订单管理</a>
+    <a href="#filter">9. 筛选客户</a>
+    <a href="#account">10. 账号与权限</a>
+    <a href="#backup">11. 数据备份</a>
+    <a href="#daily">12. 每日工作流程</a>
+    <a href="#launch">13. 正式使用注意事项</a>
+  </nav>
+</aside>
+<main class="main">
+  <h1>PEPTIVANTA CRM 新手使用说明</h1>
+  <p class="lead">这份说明按业务员实际工作顺序编写。新员工建议先完整看一遍，再开始录入真实客户。</p>
+  <div class="top-actions"><a class="btn" href="./v7.html">返回 CRM</a><a class="btn secondary" href="#daily">直接看每日流程</a></div>
+
+  <section id="start">
+    <h2>1. 第一次使用先理解 4 个核心概念</h2>
+    <div class="card">
+      <p><b>负责人</b>：管理员给业务员设置的备注名，例如 Sophia、Kevin。客户由谁的 WhatsApp 跟进，就归谁负责。</p>
+      <p><b>销售阶段</b>：表示客户现在走到哪里，例如新询盘、需求确认、已报价、待付款、已成交/履约、复购。</p>
+      <p><b>客户等级</b>：S / A / B / C / D 表示客户价值和优先级，不等于销售阶段。</p>
+      <p><b>跟进记录</b>：每次和客户发生有效沟通，都要记录“做了什么、客户怎么回复、下一步是什么、什么时候再跟”。</p>
+    </div>
+    <div class="warning"><b>不要把标签当备注乱写。</b>销售阶段、跟进结果和部分标签会自动联动。人工标签主要用于补充客户特征，例如“价格敏感、文件关注、大额潜客、物流敏感”。</div>
+  </section>
+
+  <section id="customer">
+    <h2>2. 新增客户</h2>
+    <div class="card steps">
+      <div class="step"><b>点击右上角“＋ 新增客户”</b>新客户第一次进入 WhatsApp 后就可以建档，不要等到报价后才录入。</div>
+      <div class="step"><b>优先填写必要信息</b>客户姓名、国家、WhatsApp、主要产品、客户类型、负责人。金额不确定时可以先填 0。</div>
+      <div class="step"><b>选择负责人和销售组</b>负责人要和实际跟客户沟通的 WhatsApp 业务员一致。</div>
+      <div class="step"><b>补充客户特征</b>例如价格敏感、COA关注、批量采购、长期采购、样品咨询。</div>
+      <div class="step"><b>保存</b>保存后客户会进入客户工作台和销售管道。</div>
+    </div>
+    <h3>截图辅助建档</h3>
+    <div class="card"><p>新增客户时切到“截图识别”，上传或粘贴 WhatsApp 截图。系统会尝试提取姓名、号码、国家、产品、规格、客户类型和关键词。</p><p><b>识别结果只用于预填，必须人工检查后再保存。</b>尤其是姓名、国家、+1 区号（美国/加拿大）和产品规格。</p></div>
+  </section>
+
+  <section id="workspace">
+    <h2>3. 客户工作台怎么用</h2>
+    <p>客户工作台是每天最主要的页面。左侧是当前客户序列，右侧是选中客户的上下文和跟进建议。</p>
+    <div class="flow">筛选客户 → 选中客户 → 查看最近跟进 → 处理客户 → 记录结果 → 继续下一个客户</div>
+    <div class="note">“跟进建议”是辅助判断，不代替业务员判断。真正有效的信息以客户最近一次反馈、订单状态和历史跟进为准。</div>
+  </section>
+
+  <section id="detail">
+    <h2>4. 客户详情与编辑</h2>
+    <div class="card">
+      <p>在客户卡片上快速双击，或点击“打开客户 / 详情”，会进入居中的客户处理窗口。</p>
+      <p>详情窗口可以左右切换客户。左右顺序会跟随你当前的筛选结果，不会跳到筛选范围外。</p>
+      <p>需要修改客户资料时点击<b>“编辑客户”</b>；需要跟进时直接点击<b>“记录跟进 / 直接跟进”</b>。</p>
+    </div>
+    <div class="warning">客户换业务员时要修改“负责人”，不要只改备注。负责人决定后续客户归属和数据统计。</div>
+  </section>
+
+  <section id="follow">
+    <h2>5. 一条合格的跟进记录怎么写</h2>
+    <table class="table">
+      <thead><tr><th>字段</th><th>应该写什么</th><th>示例</th></tr></thead>
+      <tbody>
+        <tr><td>本次做了什么 / 发了什么</td><td>只写本次实际动作</td><td>发送 Tirzepatide 10mg 报价和 COA，并确认首批数量。</td></tr>
+        <tr><td>客户反馈 / 原话</td><td>客户实际回复、顾虑或决定</td><td>价格可以接受，但需要和合伙人确认数量，明天回复。</td></tr>
+        <tr><td>当前主要阻力</td><td>本次成交推进最主要的问题</td><td>价格 / MOQ / 文件 / 物流 / 付款 / 竞争供应商</td></tr>
+        <tr><td>下一步动作</td><td>下一次要完成的具体动作</td><td>明天下午确认数量；确认后发送最终 PI 和付款信息。</td></tr>
+        <tr><td>下次跟进日期</td><td>明确到日期</td><td>2026-08-24</td></tr>
+      </tbody>
+    </table>
+    <div class="warning">不要只写“已跟进”“问了客户”“客户考虑中”。这种记录下一位接手的人无法继续工作。</div>
+  </section>
+
+  <section id="result">
+    <h2>6. 跟进结果和标签如何联动</h2>
+    <table class="table">
+      <thead><tr><th>选择结果</th><th>系统动作</th><th>什么时候用</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag">继续跟进</span></td><td>保留当前阶段，增加“跟进中”</td><td>客户仍有推进空间</td></tr>
+        <tr><td><span class="tag">等待客户</span></td><td>增加“等客户回复”</td><td>已经把问题/资料发给客户，等回复</td></tr>
+        <tr><td><span class="tag">待付款</span></td><td>阶段进入“待付款”，标签同步</td><td>订单已经基本确认，只差付款</td></tr>
+        <tr><td><span class="tag">已成交</span></td><td>阶段进入“已付款/履约”，增加“已成交”，清理报价后未回复等旧标签</td><td>确认成交/付款后</td></tr>
+        <tr><td><span class="tag">暂缓</span></td><td>增加“暂缓”，保留客户</td><td>客户明确表示晚些时间再推进</td></tr>
+        <tr><td><span class="tag">无效</span></td><td>等级变为 D，增加“无效客户”</td><td>明确无效、错误询盘等</td></tr>
+      </tbody>
+    </table>
+    <div class="success"><b>原则：</b>跟进结果必须和真实业务状态一致。不要为了让工作台好看而把客户提前标成“已成交”。</div>
+  </section>
+
+  <section id="pipeline">
+    <h2>7. 销售管道</h2>
+    <div class="card"><p>销售管道按阶段展示客户。卡片可以拖动改变阶段。</p><p>建议的主流程：</p><div class="flow">新询盘 → 已首次回复 → 需求确认中 → 已发资料 → 已报价 → 议价中 → 待付款 → 已付款/履约 → 待复购/复购</div></div>
+    <div class="note">拖动销售管道只改变销售阶段，不应该改变负责人。</div>
+  </section>
+
+  <section id="order">
+    <h2>8. 订单管理</h2>
+    <div class="card steps">
+      <div class="step"><b>客户成交后检查订单</b>核对客户、负责人、产品和金额。</div>
+      <div class="step"><b>更新付款状态</b>待付款、部分付款、已付款、已退款。</div>
+      <div class="step"><b>更新物流状态</b>待发货、备货中、已发货、运输中、已签收、异常。</div>
+      <div class="step"><b>填写 Tracking</b>拿到物流单号后及时补充。</div>
+      <div class="step"><b>需要修改时点“编辑”</b>金额、成本、产品、负责人、物流和日期均以实际订单为准。</div>
+    </div>
+  </section>
+
+  <section id="filter">
+    <h2>9. 筛选客户</h2>
+    <p>工作台支持按跟进时效、客户类型、客户等级、销售阶段、负责人和搜索关键词筛选。</p>
+    <div class="card"><b>常用筛选方式：</b><br>
+      <span class="tag">今日需跟进</span><span class="tag">已逾期</span><span class="tag">3天+未跟进</span><span class="tag">S/A重点</span><span class="tag">已报价</span><span class="tag">负责人</span>
+      <p>筛选后打开客户详情，左右切换只在当前筛选出来的客户序列中进行。</p>
+    </div>
+  </section>
+
+  <section id="account">
+    <h2>10. 账号、销售组和权限</h2>
+    <div class="card"><p>客户归属显示业务员备注名，例如 Sophia、Kevin，不显示“私海”。</p><p>美国和加拿大业务统一归为<b>北美组</b>。其他市场可按实际组织继续设置。</p><p>权限分为两层：<b>功能权限</b>和<b>数据范围</b>。例如普通销售可以有客户编辑权限，但数据范围只允许本人客户。</p></div>
+    <div class="warning"><b>当前版本的账号/权限仍是前端业务模型。</b>在没有服务端登录鉴权之前，它不能真正阻止另一台电脑读取数据。</div>
+  </section>
+
+  <section id="backup">
+    <h2>11. 数据备份</h2>
+    <div class="card"><p>右上角“导出数据”会导出当前 CRM 数据备份文件。</p><p><b>建议正式使用后每天至少导出一次，重要成交日额外导出一次。</b></p></div>
+    <div class="danger warning">清理浏览器数据、更换浏览器、换电脑或使用无痕模式，都可能导致当前本地数据不可见。未接数据库前必须重视备份。</div>
+  </section>
+
+  <section id="daily">
+    <h2>12. 业务员每天推荐工作流程</h2>
+    <div class="card steps">
+      <div class="step"><b>先处理“逾期跟进”</b>先清理已经超过计划日期的客户。</div>
+      <div class="step"><b>再处理“今日必须跟进”</b>按客户等级和机会金额排序。</div>
+      <div class="step"><b>检查新进客户</b>当天 WhatsApp 新粉及时建档并完成首次有效沟通。</div>
+      <div class="step"><b>推进已报价和待付款</b>这两类通常距离成交最近。</div>
+      <div class="step"><b>更新订单和物流</b>付款、Tracking、签收状态不要只留在 WhatsApp 聊天里。</div>
+      <div class="step"><b>下班前检查</b>确保今天处理过的客户都有完整跟进记录和下一次跟进日期。</div>
+      <div class="step"><b>导出备份</b>当前本地版正式使用期间建议每日备份。</div>
+    </div>
+  </section>
+
+  <section id="launch">
+    <h2>13. 正式使用前注意事项</h2>
+    <ul class="check">
+      <li>真实客户建档后，负责人必须与实际 WhatsApp 业务员一致。</li>
+      <li>每次有效沟通都记录跟进，不依赖业务员个人记忆。</li>
+      <li>“已成交、待付款、无效”等结果按实际情况选择，系统会联动阶段和标签。</li>
+      <li>订单付款、物流和 Tracking 要持续更新到签收。</li>
+      <li>当前数据保存在当前浏览器，本地版必须定期导出备份。</li>
+      <li>如果开始多人、多电脑正式协作，需要升级到 Cloudflare D1 + 正式登录鉴权后再开放子账号。</li>
+    </ul>
+    <div class="success"><b>当前版本可以作为单机 / 单浏览器业务 CRM 开始正式使用。</b>如果现阶段主要由一个管理员或固定一台电脑维护客户，这套流程已经可以落地。多人同时使用前，再完成数据库和服务端权限升级。</div>
+  </section>
+</main>
+</div>
+</body>
+</html>
