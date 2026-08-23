@@ -3,16 +3,6 @@
   const frame=document.getElementById('crmFrame');
   if(!frame)return;
 
-  let currentUser=null;
-
-  async function api(url,opts={}){
-    const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opts,headers:{'content-type':'application/json',...(opts.headers||{})}});
-    let d={};try{d=await r.json()}catch{}
-    return{r,d};
-  }
-  async function loadMe(){
-    try{const x=await api('/api/auth/me');if(x.r.ok&&x.d.ok)currentUser=x.d.user;}catch(_){ }
-  }
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   function patchStyles(d){
@@ -80,60 +70,17 @@
     }
   }
 
-  function patchAccountsHelp(d){
-    const content=d.getElementById('settingsContent');if(!content)return;
-    const active=d.querySelector('[data-settings-tab="accounts"].active');if(!active)return;
-    const aside=content.querySelector('.settings-grid > aside.panel');
-    if(aside)aside.innerHTML='<div class="settings-toolbar"><div><h2>账号组织逻辑</h2><p>角色、组织归属和数据范围分开处理。</p></div></div><div class="system-note"><b>销售</b>：归属 1 个销售组，只处理本人客户。<br><br><b>组长</b>：归属 1 个销售组，管理本组。<br><br><b>主管</b>：不归属单一组，可管理 1 个或多个销售组。<br><br><b>超级管理员</b>：不归属任何销售组，固定全部数据 + 全部权限。</div>';
-  }
-
-  async function submitAccount(d,form){
-    const fd=new frame.contentWindow.FormData(form),x=Object.fromEntries(fd);
-    const role=String(x.permissionGroup||'');
-    const managed=[...form.querySelectorAll('input[name="managedTeam"]:checked')].map(i=>i.value);
-    let team=String(x.team||'').trim();
-    if(role==='超级管理员')team='—';
-    if(role==='一级管理员'){
-      team='—';
-      if(!managed.length){alert('主管至少需要选择 1 个管理销售组。');return;}
-    }
-    if((role==='普通销售'||role==='二级管理员 / 组长')&&(!team||team==='—')){alert('销售和组长必须选择所属销售小组。');return;}
-    if(role==='超级管理员'&&currentUser?.permissionGroup!=='超级管理员'){alert('只有超级管理员可以创建新的超级管理员。');return;}
-    const payload={
-      username:x.login,
-      displayName:x.displayName,
-      permissionGroup:role,
-      team,
-      managedTeams:role==='一级管理员'?managed:[],
-      password:x.password,
-      status:x.status,
-      mustChangePassword:false
-    };
-    const res=await api('/api/users',{method:'POST',body:JSON.stringify(payload)});
-    if(!res.r.ok||!res.d.ok){
-      const map={managed_teams_required:'主管至少需要选择 1 个管理销售组',team_required:'销售或组长必须选择所属销售小组',username_exists:'登录账号已存在',password_too_short:'密码至少 4 位',super_admin_required:'只有超级管理员可以创建超级管理员'};
-      alert('创建账号失败：'+(map[res.d.error]||res.d.message||res.d.error||res.r.status));return;
-    }
-    location.reload();
-  }
-
   function install(d){
     if(!d?.documentElement)return;
-    patchStyles(d);patchForm(d);patchAccountsHelp(d);
+    patchStyles(d);patchForm(d);
     if(d.documentElement.dataset.orgModelInstalled!=='1'){
       d.documentElement.dataset.orgModelInstalled='1';
       d.addEventListener('click',e=>{
-        if(e.target.closest('#addAccountBtn')||e.target.closest('[data-settings-tab="accounts"]'))setTimeout(()=>{patchForm(d);patchAccountsHelp(d);},40);
-      },true);
-      d.addEventListener('submit',e=>{
-        const form=e.target;if(form?.id!=='accountForm')return;
-        e.preventDefault();e.stopImmediatePropagation();
-        submitAccount(d,form).catch(err=>alert('创建账号失败：'+(err?.message||err)));
+        if(e.target.closest('#addAccountBtn')||e.target.closest('[data-settings-tab="accounts"]'))setTimeout(()=>patchForm(d),40);
       },true);
     }
   }
   function attach(){try{install(frame.contentDocument);}catch(_){}}
-  loadMe().finally(()=>{});
   frame.addEventListener('load',()=>{setTimeout(attach,80);setTimeout(attach,500);});
-  setInterval(attach,900);
+  setInterval(attach,1200);
 })();
