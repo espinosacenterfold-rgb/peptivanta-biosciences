@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T02:16:00+08:00
-Lead intake date/time is selectable during customer registration, record creation time remains separate, and the customer workbench now supports filtering by intake time (today, yesterday, 3 days, 7 days, current month).
+2026-08-24T06:40:00+08:00
+Employee management is now editable, WhatsApp accounts are stored and assignable in D1, account creation always includes a real password, and login clearly distinguishes login account from business display name.
