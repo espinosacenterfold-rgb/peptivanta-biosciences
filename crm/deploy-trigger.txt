@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T00:50:00+08:00
-Role logic finalized: super admins have no sales group, supervisors manage multiple groups, leaders and sales belong to one group; data scopes are fixed by role while functional permissions remain configurable.
+2026-08-24T00:57:00+08:00
+Architecture hardening: supervisor multi-team account creation is submitted correctly, internal CRM view requires authentication, and the temporary automatic data-reset path has been removed.
