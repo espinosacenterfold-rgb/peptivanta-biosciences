@@ -21,10 +21,14 @@ const FIXED_SCOPE = {
   '超级管理员':'all'
 };
 
-function safePermissions(value){
+const SENSITIVE_PERMISSION='成本利润';
+const CONFIGURABLE_PERMISSIONS=ALL_PERMISSIONS.filter(x=>x!==SENSITIVE_PERMISSION);
+
+function safePermissions(value,name){
   try{
     const a=JSON.parse(value||'[]');
-    return Array.isArray(a)?a.filter(x=>ALL_PERMISSIONS.includes(x)):[];
+    const list=Array.isArray(a)?a.filter(x=>ALL_PERMISSIONS.includes(x)):[];
+    return name==='超级管理员'?list:list.filter(x=>x!==SENSITIVE_PERMISSION);
   }catch{return[];}
 }
 
@@ -41,13 +45,13 @@ export async function onRequestGet(context){
         scope:fixed,
         scopeLabel:SCOPE_LABELS[fixed]||fixed,
         allowedScopes:[fixed],
-        permissions:x.name==='超级管理员'?[...ALL_PERMISSIONS]:safePermissions(x.permissions),
+        permissions:x.name==='超级管理员'?[...ALL_PERMISSIONS]:safePermissions(x.permissions,x.name),
         locked:x.name==='超级管理员'||Boolean(x.is_locked),
         scopeLocked:true,
         updatedAt:x.updated_at
       };
     });
-    return json({ok:true,groups,allPermissions:[...ALL_PERMISSIONS],scopeLabels:SCOPE_LABELS});
+    return json({ok:true,groups,allPermissions:[...CONFIGURABLE_PERMISSIONS],scopeLabels:SCOPE_LABELS});
   }catch(e){return json({ok:false,error:'permission_groups_get_failed',message:e?.message||String(e)},500);}
 }
 
@@ -60,7 +64,7 @@ export async function onRequestPut(context){
     if(!ROLE_DEFS[name])return json({ok:false,error:'invalid_permission_group'},400);
     if(name==='超级管理员')return json({ok:false,error:'super_admin_locked'},400);
     const scope=FIXED_SCOPE[name];
-    const permissions=Array.isArray(body.permissions)?[...new Set(body.permissions.filter(x=>ALL_PERMISSIONS.includes(x)))]:[];
+    const permissions=Array.isArray(body.permissions)?[...new Set(body.permissions.filter(x=>CONFIGURABLE_PERMISSIONS.includes(x)))]:[];
     const now=nowIso();
     await context.env.DB.prepare('UPDATE permission_groups SET scope=?,permissions=?,updated_at=? WHERE name=?')
       .bind(scope,JSON.stringify(permissions),now,name).run();
