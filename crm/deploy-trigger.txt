@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T01:27:00+08:00
-Customer registration now includes compact grade definitions and customer ownership rules for sales reps and team leaders.
+2026-08-24T01:31:00+08:00
+Customer registration now stores the actual lead intake date/time separately from CRM record creation time and uses historical intake time to age unhandled leads into the correct follow-up pool.
