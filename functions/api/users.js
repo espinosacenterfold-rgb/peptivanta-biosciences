@@ -27,11 +27,11 @@ export async function onRequestPost(context){
     const a=await requireUser(context);if(a.response)return a.response;
     if(!hasPermission(a.user,'子账号管理'))return json({ok:false,error:'forbidden'},403);
     const body=await context.request.json(),v=validate(body);if(v.error)return json({ok:false,error:v.error},400);
-    if(v.permissionGroup==='超级管理员')return json({ok:false,error:'super_admin_creation_disabled'},403);
     if(!canManageTarget(a.user,v.permissionGroup,v.team))return json({ok:false,error:'forbidden_target_scope'},403);
     const password=String(body.password||'');if(password.length<4)return json({ok:false,error:'password_too_short',min:4},400);
     const managed=Array.isArray(body.managedTeams)?body.managedTeams.filter(Boolean):[];
     if(v.permissionGroup==='一级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'forbidden_target_role'},403);
+    if(v.permissionGroup==='超级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'super_admin_required'},403);
     const hp=await hashPassword(password),now=nowIso();
     try{
       const r=await context.env.DB.prepare(`INSERT INTO users(username,password_hash,password_salt,display_name,permission_group,team,managed_teams,is_active,must_change_password,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(v.username,hp.hash,hp.salt,v.displayName,v.permissionGroup,v.team,JSON.stringify(managed),body.status==='停用'?0:1,body.mustChangePassword===false?0:1,now,now).run();
@@ -45,14 +45,24 @@ export async function onRequestPatch(context){
   try{
     const a=await requireUser(context);if(a.response)return a.response;
     if(!hasPermission(a.user,'子账号管理'))return json({ok:false,error:'forbidden'},403);
-    const body=await context.request.json(),id=Number(body.id);if(!id)return json({ok:false,error:'missing_id'},400);
-    const target=await context.env.DB.prepare('SELECT * FROM users WHERE id=?').bind(id).first();if(!target)return json({ok:false,error:'not_found'},404);
-    const permissionGroup=String(body.permissionGroup||target.permission_group),team=String(body.team||target.team);
-    if(permissionGroup==='超级管理员'&&target.username!=='admin')return json({ok:false,error:'super_admin_promotion_disabled'},403);
-    if(!canManageTarget(a.user,permissionGroup,team)&&a.user.id!==id)return json({ok:false,error:'forbidden_target_scope'},403);
+    const body=await context.request.json();
+    const id=Number(body.id||0),username=String(body.username||'').trim().toLowerCase();
+    if(!id&&!username)return json({ok:false,error:'missing_target'},400);
+    const target=id
+      ? await context.env.DB.prepare('SELECT * FROM users WHERE id=?').bind(id).first()
+      : await context.env.DB.prepare('SELECT * FROM users WHERE username=?').bind(username).first();
+    if(!target)return json({ok:false,error:'not_found'},404);
+    const targetId=Number(target.id),permissionGroup=String(body.permissionGroup||target.permission_group),team=String(body.team||target.team);
+    if(permissionGroup==='超级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'super_admin_required'},403);
+    if(!canManageTarget(a.user,permissionGroup,team)&&a.user.id!==targetId)return json({ok:false,error:'forbidden_target_scope'},403);
     const displayName=String(body.displayName||target.display_name).trim(),managed=Array.isArray(body.managedTeams)?body.managedTeams:parseManagedTeams(target),active=body.status?body.status!=='停用':Boolean(target.is_active),now=nowIso();
-    await context.env.DB.prepare('UPDATE users SET display_name=?,permission_group=?,team=?,managed_teams=?,is_active=?,updated_at=? WHERE id=?').bind(displayName,permissionGroup,team,JSON.stringify(managed),active?1:0,now,id).run();
-    if(body.password){const p=String(body.password);if(p.length<4)return json({ok:false,error:'password_too_short',min:4},400);const hp=await hashPassword(p);await context.env.DB.prepare('UPDATE users SET password_hash=?,password_salt=?,must_change_password=?,updated_at=? WHERE id=?').bind(hp.hash,hp.salt,body.mustChangePassword===false?0:1,now,id).run();await context.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(id).run();}
-    await audit(context.env.DB,a.user,'update_user','user',String(id),{permissionGroup,team,active});return json({ok:true});
+    await context.env.DB.prepare('UPDATE users SET display_name=?,permission_group=?,team=?,managed_teams=?,is_active=?,updated_at=? WHERE id=?').bind(displayName,permissionGroup,team,JSON.stringify(managed),active?1:0,now,targetId).run();
+    if(body.password!==undefined){
+      const p=String(body.password||'');if(p.length<4)return json({ok:false,error:'password_too_short',min:4},400);
+      const hp=await hashPassword(p);
+      await context.env.DB.prepare('UPDATE users SET password_hash=?,password_salt=?,must_change_password=?,updated_at=? WHERE id=?').bind(hp.hash,hp.salt,body.mustChangePassword===false?0:1,now,targetId).run();
+      await context.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(targetId).run();
+    }
+    await audit(context.env.DB,a.user,'update_user','user',String(targetId),{username:target.username,permissionGroup,team,active,passwordChanged:body.password!==undefined});return json({ok:true,id:targetId,username:target.username});
   }catch(e){return json({ok:false,error:'users_update_failed',message:e?.message||String(e)},500);}
 }
