@@ -1,4 +1,4 @@
-import { requireUser, ensureState, listUsers, scopeStateForUser, roleDef, hasPermission, canAccessCustomer, canAssignCustomer, json, nowIso, audit, ROLE_DEFS, usersToAccounts } from '../_lib/auth.js';
+import { requireUser, ensureState, listUsers, listWhatsapps, scopeStateForUser, roleDef, hasPermission, canAccessCustomer, canAssignCustomer, json, nowIso, audit, ROLE_DEFS, usersToAccounts } from '../_lib/auth.js';
 
 function parseState(row){try{return JSON.parse(row.data||'{}')}catch{return{teams:[],permissions:[],whatsapp:[],accounts:[],customers:[],orders:[]}}}
 function byId(arr){return new Map((arr||[]).map(x=>[x.id,x]));}
@@ -12,19 +12,17 @@ function orderAllowed(user,o,customerMap){
   return false;
 }
 function sanitizeIncoming(candidate){
-  const out=safeClone(candidate);out.customers=Array.isArray(out.customers)?out.customers:[];out.orders=Array.isArray(out.orders)?out.orders:[];out.teams=Array.isArray(out.teams)?out.teams:[];out.whatsapp=Array.isArray(out.whatsapp)?out.whatsapp:[];return out;
+  const out=safeClone(candidate);out.customers=Array.isArray(out.customers)?out.customers:[];out.orders=Array.isArray(out.orders)?out.orders:[];out.teams=Array.isArray(out.teams)?out.teams:[];return out;
 }
 function normalizeNewCustomerOwnership(user,c){
   const x={...c},def=roleDef(user);
   if(def.scope==='owner'){
-    x.owner=user.display_name;
-    x.team=user.team;
-    return x;
+    x.owner=user.display_name;x.ownerUserId=Number(user.id);x.team=user.team;return x;
   }
   if(def.scope==='team'){
     x.team=user.team;
     const owner=String(x.owner||'').trim();
-    if(!owner||owner==='未归属'||owner==='—')x.owner=user.display_name;
+    if(!owner||owner==='未归属'||owner==='—'){x.owner=user.display_name;x.ownerUserId=Number(user.id);}
     return x;
   }
   return x;
@@ -32,19 +30,18 @@ function normalizeNewCustomerOwnership(user,c){
 function mergeState(current,candidate,user){
   candidate=sanitizeIncoming(candidate);const def=roleDef(user);
   if(def.scope==='all'){
-    const next={...current,...candidate};next.accounts=current.accounts||[];next.permissions=current.permissions||[];return next;
+    const next={...current,...candidate};next.accounts=current.accounts||[];next.permissions=current.permissions||[];next.whatsapp=current.whatsapp||[];return next;
   }
   const next=safeClone(current),curCustomers=byId(current.customers),incomingCustomers=byId(candidate.customers),mergedCustomers=[];
   for(const c of current.customers||[]){
     if(!canAccessCustomer(user,c)){mergedCustomers.push(c);continue;}
     const n=incomingCustomers.get(c.id);if(!n){mergedCustomers.push(c);continue;}
-    const x={...c,...n};if(def.scope==='owner'){x.owner=user.display_name;x.team=user.team;}if(!canAssignCustomer(user,x)){x.owner=c.owner;x.team=c.team;}mergedCustomers.push(x);
+    const x={...c,...n};
+    if(def.scope==='owner'){x.owner=user.display_name;x.ownerUserId=Number(user.id);x.team=user.team;}
+    if(!canAssignCustomer(user,x)){x.owner=c.owner;x.ownerUserId=c.ownerUserId;x.team=c.team;}
+    mergedCustomers.push(x);
   }
-  for(const n of candidate.customers||[]){
-    if(curCustomers.has(n.id))continue;
-    const x=normalizeNewCustomerOwnership(user,n);
-    if(customerAllowedNew(user,x))mergedCustomers.push(x);
-  }
+  for(const n of candidate.customers||[]){if(curCustomers.has(n.id))continue;const x=normalizeNewCustomerOwnership(user,n);if(customerAllowedNew(user,x))mergedCustomers.push(x);}
   next.customers=mergedCustomers;
   const globalCustomerMap=byId(mergedCustomers),curOrders=byId(current.orders),incomingOrders=byId(candidate.orders),mergedOrders=[];
   for(const o of current.orders||[]){
@@ -55,21 +52,33 @@ function mergeState(current,candidate,user){
   for(const n of candidate.orders||[]){if(curOrders.has(n.id))continue;const x={...n};if(def.scope==='owner')x.owner=user.display_name;if(orderAllowed(user,x,globalCustomerMap)){if(!hasPermission(user,'成本利润'))x.cost=0;mergedOrders.push(x);}}
   next.orders=mergedOrders;return next;
 }
-async function conflict(context,user){const fresh=await ensureState(context.env.DB),users=await listUsers(context.env.DB),scoped=scopeStateForUser(parseState(fresh),user,users);return json({ok:false,error:'revision_conflict',revision:Number(fresh.revision||1),state:scoped},409);}
+async function hydrateDbOwnedState(db,state,users){
+  state.accounts=usersToAccounts(users);
+  state.permissions=Object.entries(ROLE_DEFS).map(([name,v],i)=>({id:`P-${i+1}`,name,scope:v.scope,permissions:v.permissions}));
+  state.whatsapp=await listWhatsapps(db);
+  return state;
+}
+async function conflict(context,user){
+  const fresh=await ensureState(context.env.DB),users=await listUsers(context.env.DB),state=await hydrateDbOwnedState(context.env.DB,parseState(fresh),users),scoped=scopeStateForUser(state,user,users);
+  return json({ok:false,error:'revision_conflict',revision:Number(fresh.revision||1),state:scoped},409);
+}
 
 export async function onRequestGet(context){
-  try{const auth=await requireUser(context);if(auth.response)return auth.response;const row=await ensureState(context.env.DB),state=parseState(row),users=await listUsers(context.env.DB);state.accounts=usersToAccounts(users);state.permissions=Object.entries(ROLE_DEFS).map(([name,v],i)=>({id:`P-${i+1}`,name,scope:v.scope,permissions:v.permissions}));return json({ok:true,state:scopeStateForUser(state,auth.user,users),revision:Number(row.revision||1),updatedAt:row.updated_at,scope:roleDef(auth.user).scope});}
-  catch(e){return json({ok:false,error:'state_get_failed',message:e?.message||String(e)},500);}
+  try{
+    const auth=await requireUser(context);if(auth.response)return auth.response;
+    const row=await ensureState(context.env.DB),users=await listUsers(context.env.DB),state=await hydrateDbOwnedState(context.env.DB,parseState(row),users);
+    return json({ok:true,state:scopeStateForUser(state,auth.user,users),revision:Number(row.revision||1),updatedAt:row.updated_at,scope:roleDef(auth.user).scope});
+  }catch(e){return json({ok:false,error:'state_get_failed',message:e?.message||String(e)},500);}
 }
 export async function onRequestPut(context){
   try{
     const auth=await requireUser(context);if(auth.response)return auth.response;const body=await context.request.json();if(!body?.state)return json({ok:false,error:'missing_state'},400);
     const row=await ensureState(context.env.DB),revision=Number(row.revision||1),expected=Number(body.revision||0);if(expected!==revision)return conflict(context,auth.user);
     const current=parseState(row),next=mergeState(current,body.state,auth.user),nextRevision=revision+1,now=nowIso();
+    const users=await listUsers(context.env.DB);await hydrateDbOwnedState(context.env.DB,next,users);
     const wr=await context.env.DB.prepare('UPDATE app_state SET data=?,revision=?,updated_at=? WHERE id=1 AND revision=?').bind(JSON.stringify(next),nextRevision,now,revision).run();
     if(Number(wr.meta?.changes||0)!==1)return conflict(context,auth.user);
     await audit(context.env.DB,auth.user,'state_sync','crm','global',{from:revision,to:nextRevision});
-    const users=await listUsers(context.env.DB);next.accounts=usersToAccounts(users);next.permissions=Object.entries(ROLE_DEFS).map(([name,v],i)=>({id:`P-${i+1}`,name,scope:v.scope,permissions:v.permissions}));
     return json({ok:true,revision:nextRevision,updatedAt:now,state:scopeStateForUser(next,auth.user,users)});
   }catch(e){return json({ok:false,error:'state_put_failed',message:e?.message||String(e)},500);}
 }
