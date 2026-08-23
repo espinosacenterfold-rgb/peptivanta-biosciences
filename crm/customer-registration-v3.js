@@ -158,8 +158,8 @@
     const choices=eligibleAccounts(),current=owner.value,allowUnowned=me&&['一级管理员','超级管理员'].includes(me.permissionGroup);
     owner.innerHTML=choices.map(a=>`<option value="${esc(a.displayName)}">${esc(a.displayName)}${a.team&&a.team!=='—'?` · ${esc(a.team)}`:''}</option>`).join('')+(allowUnowned?'<option value="未归属">未归属</option>':'');
     const selfAllowed=choices.some(a=>a.displayName===me?.displayName);let preferred='';
-    if((me?.permissionGroup==='普通销售'||me?.permissionGroup==='二级管理员 / 组长')&&selfAllowed)preferred=me.displayName;
-    else if(choices.some(a=>a.displayName===current))preferred=current;
+    if(choices.some(a=>a.displayName===current)||current==='未归属'&&allowUnowned)preferred=current;
+    else if((me?.permissionGroup==='普通销售'||me?.permissionGroup==='二级管理员 / 组长')&&selfAllowed)preferred=me.displayName;
     else preferred=choices[0]?.displayName||(allowUnowned?'未归属':'');
     owner.value=preferred;
     if(me?.permissionGroup==='普通销售'){owner.classList.add('pv-reg-derived');owner.tabIndex=-1;}else{owner.classList.remove('pv-reg-derived');owner.tabIndex=0;}
@@ -231,7 +231,7 @@
     const form=d?.getElementById('customerForm');if(!form)return;
     buildLayout(d,form);populateOwnership(d,form);resetDefaults(form);maybeOpenFollow(d);
     if(d.documentElement.dataset.customerRegistrationV3==='1')return;d.documentElement.dataset.customerRegistrationV3='1';
-    d.addEventListener('click',e=>{if(e.target.closest('#addCustomerBtn'))setTimeout(()=>{resetDefaults(form);populateOwnership(d,form);},20);},true);
+    d.addEventListener('click',e=>{if(e.target.closest('#addCustomerBtn'))setTimeout(()=>{resetDefaults(form);const owner=form.elements.namedItem('owner');if(owner&&me&&['普通销售','二级管理员 / 组长'].includes(me.permissionGroup))owner.value=me.displayName;populateOwnership(d,form);},20);},true);
     d.addEventListener('submit',e=>{
       if(e.target!==form)return;
       const meta=prepareSubmit(e,form);if(!meta)return;
