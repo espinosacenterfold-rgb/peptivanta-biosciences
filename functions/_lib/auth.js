@@ -7,12 +7,45 @@ export const ALL_PERMISSIONS = [
   '数据分析','小组数据分析','数据导出','子账号管理','销售小组管理','权限组管理','系统设置'
 ];
 
-export const ROLE_DEFS = {
-  '超级管理员': { scope: 'all', permissions: ALL_PERMISSIONS },
+const BASE_ROLE_DEFS = {
+  '超级管理员': { scope: 'all', permissions: [...ALL_PERMISSIONS] },
   '一级管理员': { scope: 'managed_teams', permissions: ['客户查看','客户编辑','负责人转移','跟进管理','销售管道','报价管理','订单管理','物流管理','数据分析','数据导出','子账号管理','销售小组管理'] },
   '二级管理员 / 组长': { scope: 'team', permissions: ['客户查看','客户编辑','跟进管理','销售管道','报价管理','订单查看','物流查看','小组数据分析'] },
   '普通销售': { scope: 'owner', permissions: ['客户查看','客户编辑','跟进管理','销售管道','报价管理','本人订单查看'] }
 };
+
+export const ROLE_DEFS = Object.fromEntries(Object.entries(BASE_ROLE_DEFS).map(([name,v]) => [name,{ scope:v.scope, permissions:[...v.permissions] }]));
+
+const ROLE_SCOPE_LIMITS = {
+  '普通销售': ['owner'],
+  '二级管理员 / 组长': ['owner','team'],
+  '一级管理员': ['owner','team','managed_teams'],
+  '超级管理员': ['all']
+};
+
+function parsePermissionArray(value, fallback = []) {
+  try {
+    const a = JSON.parse(value || '[]');
+    return Array.isArray(a) ? a.filter(x => ALL_PERMISSIONS.includes(x)) : [...fallback];
+  } catch { return [...fallback]; }
+}
+
+async function loadPermissionGroups(db) {
+  const r = await db.prepare('SELECT name,scope,permissions FROM permission_groups').all();
+  for (const row of (r.results || [])) {
+    if (!BASE_ROLE_DEFS[row.name]) continue;
+    if (row.name === '超级管理员') {
+      ROLE_DEFS[row.name] = { scope:'all', permissions:[...ALL_PERMISSIONS] };
+      continue;
+    }
+    const allowedScopes = ROLE_SCOPE_LIMITS[row.name] || [BASE_ROLE_DEFS[row.name].scope];
+    const scope = allowedScopes.includes(row.scope) ? row.scope : BASE_ROLE_DEFS[row.name].scope;
+    ROLE_DEFS[row.name] = {
+      scope,
+      permissions: parsePermissionArray(row.permissions, BASE_ROLE_DEFS[row.name].permissions)
+    };
+  }
+}
 
 export async function ensureSchema(db) {
   const sql = [
@@ -53,11 +86,26 @@ export async function ensureSchema(db) {
       details TEXT,
       created_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS permission_groups (
+      name TEXT PRIMARY KEY,
+      scope TEXT NOT NULL,
+      permissions TEXT NOT NULL,
+      is_locked INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)`,
     `CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at)`
   ];
   await db.batch(sql.map(q => db.prepare(q)));
+
+  const now = nowIso();
+  const seeds = Object.entries(BASE_ROLE_DEFS).map(([name,v]) =>
+    db.prepare('INSERT OR IGNORE INTO permission_groups(name,scope,permissions,is_locked,updated_at) VALUES(?,?,?,?,?)')
+      .bind(name,v.scope,JSON.stringify(v.permissions),name==='超级管理员'?1:0,now)
+  );
+  await db.batch(seeds);
+  await loadPermissionGroups(db);
 }
 
 export function json(data, status = 200, headers = {}) {
@@ -127,7 +175,7 @@ export function hasPermission(user, permission) {
   return roleDef(user).permissions.includes(permission);
 }
 export function publicUser(user) {
-  return { id:user.id, username:user.username, displayName:user.display_name, permissionGroup:user.permission_group, team:user.team, managedTeams:parseManagedTeams(user), permissions:user.permission_group === '超级管理员' ? [...ALL_PERMISSIONS] : roleDef(user).permissions };
+  return { id:user.id, username:user.username, displayName:user.display_name, permissionGroup:user.permission_group, team:user.team, managedTeams:parseManagedTeams(user), permissions:user.permission_group === '超级管理员' ? [...ALL_PERMISSIONS] : [...roleDef(user).permissions], dataScope:roleDef(user).scope };
 }
 
 export async function getCurrentUser(context) {
@@ -175,7 +223,7 @@ export function defaultState() {
       {id:'T-MX1',name:'墨西哥组',manager:'Administrator',level:'二级销售组',status:'正常'},
       {id:'T-AU1',name:'澳大利亚组',manager:'Administrator',level:'二级销售组',status:'正常'}
     ],
-    permissions:Object.entries(ROLE_DEFS).map(([name,v],i)=>({id:`P-${i+1}`,name,scope:v.scope,permissions:v.permissions})),
+    permissions:Object.entries(ROLE_DEFS).map(([name,v],i)=>({id:`P-${i+1}`,name,scope:v.scope,permissions:[...v.permissions]})),
     whatsapp:[], accounts:[], customers:[], orders:[]
   };
 }
@@ -214,7 +262,7 @@ export function scopeStateForUser(state, user, users = []) {
   else if (def.scope === 'managed_teams') { const mt=parseManagedTeams(user); const allowed=mt.length?mt:[user.team]; teams=teams.filter(t=>allowed.includes(t.name)); visibleUsers=users.filter(u=>allowed.includes(u.team)||u.id===user.id); }
   out.teams = teams;
   out.accounts = usersToAccounts(visibleUsers);
-  out.permissions = Object.entries(ROLE_DEFS).map(([name,v],i)=>({id:`P-${i+1}`,name,scope:v.scope,permissions:v.permissions}));
+  out.permissions = Object.entries(ROLE_DEFS).map(([name,v],i)=>({id:`P-${i+1}`,name,scope:v.scope,permissions:[...v.permissions]}));
   out.whatsapp = (out.whatsapp || []).filter(w => visibleUsers.some(u=>u.display_name===w.owner) || def.scope==='all');
   return out;
 }
