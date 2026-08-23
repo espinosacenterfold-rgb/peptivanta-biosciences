@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T06:58:00+08:00
-Expanded customer registration and editability without adding budget or expected-order fields. Intake time can be backfilled independently from immutable CRM record time; optional profile fields now cover contact role, language, shipping country, demand specifications/quantity, purchase purpose, current objection, and source details.
+2026-08-24T07:08:00+08:00
+Simplified the customer workbench for execution: compact KPI strip, collapsible filters, denser customer cards, and a focused right-hand follow-up pane that prioritizes customer identity, rep-entered registration content, the latest follow-up, and the next action while moving full dossier/history into the customer detail view.
