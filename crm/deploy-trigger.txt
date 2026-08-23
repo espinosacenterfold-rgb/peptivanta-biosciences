@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T01:24:00+08:00
-Team leaders can sell directly: newly created customers default to the leader as owner and remain invisible to sales members unless explicitly reassigned.
+2026-08-24T01:27:00+08:00
+Customer registration now includes compact grade definitions and customer ownership rules for sales reps and team leaders.
