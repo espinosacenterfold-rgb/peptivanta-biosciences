@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T06:40:00+08:00
-Employee management is now editable, WhatsApp accounts are stored and assignable in D1, account creation always includes a real password, and login clearly distinguishes login account from business display name.
+2026-08-24T06:55:00+08:00
+Removed the legacy account-submit handler from the cloud shell, added full employee editing and WhatsApp management, and made customer ownership derive from responsible employee, sales group, and source WhatsApp.
