@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T06:55:00+08:00
-Removed the legacy account-submit handler from the cloud shell, added full employee editing and WhatsApp management, and made customer ownership derive from responsible employee, sales group, and source WhatsApp.
+2026-08-24T07:05:00+08:00
+Finalized CRM account ownership hardening: cloud shell v3 removes the legacy 10-character password/account submit handler; super admins can fully edit employees and manage WhatsApp accounts; customer ownership now derives from responsible employee, team, and source WhatsApp.
