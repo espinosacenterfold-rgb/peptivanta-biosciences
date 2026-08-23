@@ -1,4 +1,5 @@
 const enc = new TextEncoder();
+const PASSWORD_PBKDF2_ITERATIONS = 100000;
 
 export const ROLE_DEFS = {
   '超级管理员': { scope: 'all', permissions: ['客户查看','客户编辑','负责人转移','跟进管理','销售管道','报价管理','订单管理','成本利润','物流管理','数据分析','数据导出','子账号管理','销售小组管理','权限组管理','系统设置'] },
@@ -83,7 +84,7 @@ export async function sha256(text) {
 export async function hashPassword(password, saltB64 = null) {
   const salt = saltB64 ? b64ToBytes(saltB64) : (() => { const b = new Uint8Array(16); crypto.getRandomValues(b); return b; })();
   const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name:'PBKDF2', hash:'SHA-256', salt, iterations:210000 }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name:'PBKDF2', hash:'SHA-256', salt, iterations:PASSWORD_PBKDF2_ITERATIONS }, key, 256);
   return { hash: bytesToB64(new Uint8Array(bits)), salt: bytesToB64(salt) };
 }
 export async function verifyPassword(password, salt, expected) {
