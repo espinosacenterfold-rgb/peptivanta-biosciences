@@ -1,8 +1,14 @@
 const enc = new TextEncoder();
 const PASSWORD_PBKDF2_ITERATIONS = 100000;
 
+export const ALL_PERMISSIONS = [
+  '客户查看','客户编辑','负责人转移','跟进管理','销售管道','报价管理',
+  '订单管理','订单查看','本人订单查看','成本利润','物流管理','物流查看',
+  '数据分析','小组数据分析','数据导出','子账号管理','销售小组管理','权限组管理','系统设置'
+];
+
 export const ROLE_DEFS = {
-  '超级管理员': { scope: 'all', permissions: ['客户查看','客户编辑','负责人转移','跟进管理','销售管道','报价管理','订单管理','成本利润','物流管理','数据分析','数据导出','子账号管理','销售小组管理','权限组管理','系统设置'] },
+  '超级管理员': { scope: 'all', permissions: ALL_PERMISSIONS },
   '一级管理员': { scope: 'managed_teams', permissions: ['客户查看','客户编辑','负责人转移','跟进管理','销售管道','报价管理','订单管理','物流管理','数据分析','数据导出','子账号管理','销售小组管理'] },
   '二级管理员 / 组长': { scope: 'team', permissions: ['客户查看','客户编辑','跟进管理','销售管道','报价管理','订单查看','物流查看','小组数据分析'] },
   '普通销售': { scope: 'owner', permissions: ['客户查看','客户编辑','跟进管理','销售管道','报价管理','本人订单查看'] }
@@ -116,9 +122,12 @@ export function roleDef(userOrRole) {
   const name = typeof userOrRole === 'string' ? userOrRole : userOrRole?.permission_group;
   return ROLE_DEFS[name] || ROLE_DEFS['普通销售'];
 }
-export function hasPermission(user, permission) { return roleDef(user).permissions.includes(permission); }
+export function hasPermission(user, permission) {
+  if (user?.permission_group === '超级管理员') return true;
+  return roleDef(user).permissions.includes(permission);
+}
 export function publicUser(user) {
-  return { id:user.id, username:user.username, displayName:user.display_name, permissionGroup:user.permission_group, team:user.team, managedTeams:parseManagedTeams(user), permissions:roleDef(user).permissions };
+  return { id:user.id, username:user.username, displayName:user.display_name, permissionGroup:user.permission_group, team:user.team, managedTeams:parseManagedTeams(user), permissions:user.permission_group === '超级管理员' ? [...ALL_PERMISSIONS] : roleDef(user).permissions };
 }
 
 export async function getCurrentUser(context) {
@@ -162,7 +171,7 @@ export async function audit(db, user, action, entityType, entityId = null, detai
 export function defaultState() {
   return {
     teams:[
-      {id:'T-NA1',name:'美国一组',manager:'Administrator',level:'一级销售组',status:'正常'},
+      {id:'T-NA1',name:'北美组',manager:'Administrator',level:'一级销售组',status:'正常'},
       {id:'T-MX1',name:'墨西哥组',manager:'Administrator',level:'二级销售组',status:'正常'},
       {id:'T-AU1',name:'澳大利亚组',manager:'Administrator',level:'二级销售组',status:'正常'}
     ],
