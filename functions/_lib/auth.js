@@ -16,13 +16,6 @@ const BASE_ROLE_DEFS = {
 
 export const ROLE_DEFS = Object.fromEntries(Object.entries(BASE_ROLE_DEFS).map(([name,v]) => [name,{ scope:v.scope, permissions:[...v.permissions] }]));
 
-const ROLE_SCOPE_LIMITS = {
-  '普通销售': ['owner'],
-  '二级管理员 / 组长': ['owner','team'],
-  '一级管理员': ['owner','team','managed_teams'],
-  '超级管理员': ['all']
-};
-
 function parsePermissionArray(value, fallback = []) {
   try {
     const a = JSON.parse(value || '[]');
@@ -31,18 +24,14 @@ function parsePermissionArray(value, fallback = []) {
 }
 
 async function loadPermissionGroups(db) {
-  const r = await db.prepare('SELECT name,scope,permissions FROM permission_groups').all();
+  const r = await db.prepare('SELECT name,permissions FROM permission_groups').all();
   for (const row of (r.results || [])) {
     if (!BASE_ROLE_DEFS[row.name]) continue;
-    if (row.name === '超级管理员') {
-      ROLE_DEFS[row.name] = { scope:'all', permissions:[...ALL_PERMISSIONS] };
-      continue;
-    }
-    const allowedScopes = ROLE_SCOPE_LIMITS[row.name] || [BASE_ROLE_DEFS[row.name].scope];
-    const scope = allowedScopes.includes(row.scope) ? row.scope : BASE_ROLE_DEFS[row.name].scope;
     ROLE_DEFS[row.name] = {
-      scope,
-      permissions: parsePermissionArray(row.permissions, BASE_ROLE_DEFS[row.name].permissions)
+      scope: BASE_ROLE_DEFS[row.name].scope,
+      permissions: row.name === '超级管理员'
+        ? [...ALL_PERMISSIONS]
+        : parsePermissionArray(row.permissions, BASE_ROLE_DEFS[row.name].permissions)
     };
   }
 }
@@ -105,13 +94,19 @@ export async function ensureSchema(db) {
       .bind(name,v.scope,JSON.stringify(v.permissions),name==='超级管理员'?1:0,now)
   );
   await db.batch(seeds);
+  await db.batch([
+    db.prepare("UPDATE permission_groups SET scope='owner' WHERE name='普通销售' AND scope<>'owner'"),
+    db.prepare("UPDATE permission_groups SET scope='team' WHERE name='二级管理员 / 组长' AND scope<>'team'"),
+    db.prepare("UPDATE permission_groups SET scope='managed_teams' WHERE name='一级管理员' AND scope<>'managed_teams'"),
+    db.prepare("UPDATE permission_groups SET scope='all',permissions=?,is_locked=1 WHERE name='超级管理员'").bind(JSON.stringify(ALL_PERMISSIONS))
+  ]);
   await loadPermissionGroups(db);
 }
 
 export function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers }
+    headers: { 'content-type':'application/json; charset=utf-8', 'cache-control':'no-store', ...headers }
   });
 }
 
@@ -175,7 +170,16 @@ export function hasPermission(user, permission) {
   return roleDef(user).permissions.includes(permission);
 }
 export function publicUser(user) {
-  return { id:user.id, username:user.username, displayName:user.display_name, permissionGroup:user.permission_group, team:user.team, managedTeams:parseManagedTeams(user), permissions:user.permission_group === '超级管理员' ? [...ALL_PERMISSIONS] : [...roleDef(user).permissions], dataScope:roleDef(user).scope };
+  return {
+    id:user.id,
+    username:user.username,
+    displayName:user.display_name,
+    permissionGroup:user.permission_group,
+    team:user.team,
+    managedTeams:parseManagedTeams(user),
+    permissions:user.permission_group === '超级管理员' ? [...ALL_PERMISSIONS] : [...roleDef(user).permissions],
+    dataScope:roleDef(user).scope
+  };
 }
 
 export async function getCurrentUser(context) {
@@ -198,7 +202,7 @@ export function canAccessCustomer(user, c) {
   if (def.scope === 'all') return true;
   if (def.scope === 'owner') return c.owner === user.display_name;
   if (def.scope === 'team') return c.team === user.team;
-  const teams = parseManagedTeams(user); if (!teams.length && user.team && user.team !== '—') teams.push(user.team);
+  const teams = parseManagedTeams(user);
   return teams.includes(c.team);
 }
 export function canAssignCustomer(user, c) {
@@ -206,7 +210,7 @@ export function canAssignCustomer(user, c) {
   if (def.scope === 'all') return true;
   if (def.scope === 'owner') return c.owner === user.display_name && c.team === user.team;
   if (def.scope === 'team') return c.team === user.team;
-  const teams = parseManagedTeams(user); if (!teams.length && user.team && user.team !== '—') teams.push(user.team);
+  const teams = parseManagedTeams(user);
   return teams.includes(c.team);
 }
 
@@ -244,7 +248,17 @@ export async function listUsers(db) {
   return r.results || [];
 }
 export function usersToAccounts(users) {
-  return users.map(u=>({ id:`U-${u.id}`, login:u.username, displayName:u.display_name, permissionGroup:u.permission_group, team:u.team, managedTeams:parseManagedTeams(u), whatsapp:'—', status:u.is_active ? '正常':'停用', mustChangePassword:Boolean(u.must_change_password) }));
+  return users.map(u=>({
+    id:`U-${u.id}`,
+    login:u.username,
+    displayName:u.display_name,
+    permissionGroup:u.permission_group,
+    team:u.team,
+    managedTeams:parseManagedTeams(u),
+    whatsapp:'—',
+    status:u.is_active ? '正常':'停用',
+    mustChangePassword:Boolean(u.must_change_password)
+  }));
 }
 
 export function scopeStateForUser(state, user, users = []) {
@@ -257,9 +271,17 @@ export function scopeStateForUser(state, user, users = []) {
   const def = roleDef(user);
   let teams = out.teams || [];
   let visibleUsers = users;
-  if (def.scope === 'owner') { teams = teams.filter(t=>t.name===user.team); visibleUsers = users.filter(u=>u.id===user.id); }
-  else if (def.scope === 'team') { teams = teams.filter(t=>t.name===user.team); visibleUsers = users.filter(u=>u.team===user.team); }
-  else if (def.scope === 'managed_teams') { const mt=parseManagedTeams(user); const allowed=mt.length?mt:[user.team]; teams=teams.filter(t=>allowed.includes(t.name)); visibleUsers=users.filter(u=>allowed.includes(u.team)||u.id===user.id); }
+  if (def.scope === 'owner') {
+    teams = teams.filter(t=>t.name===user.team);
+    visibleUsers = users.filter(u=>u.id===user.id);
+  } else if (def.scope === 'team') {
+    teams = teams.filter(t=>t.name===user.team);
+    visibleUsers = users.filter(u=>u.team===user.team);
+  } else if (def.scope === 'managed_teams') {
+    const allowed=parseManagedTeams(user);
+    teams=teams.filter(t=>allowed.includes(t.name));
+    visibleUsers=users.filter(u=>allowed.includes(u.team)||parseManagedTeams(u).some(t=>allowed.includes(t))||u.id===user.id);
+  }
   out.teams = teams;
   out.accounts = usersToAccounts(visibleUsers);
   out.permissions = Object.entries(ROLE_DEFS).map(([name,v],i)=>({id:`P-${i+1}`,name,scope:v.scope,permissions:[...v.permissions]}));
