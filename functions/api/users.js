@@ -29,7 +29,7 @@ export async function onRequestPost(context){
     const body=await context.request.json(),v=validate(body);if(v.error)return json({ok:false,error:v.error},400);
     if(v.permissionGroup==='超级管理员')return json({ok:false,error:'super_admin_creation_disabled'},403);
     if(!canManageTarget(a.user,v.permissionGroup,v.team))return json({ok:false,error:'forbidden_target_scope'},403);
-    const password=String(body.password||'');if(password.length<10)return json({ok:false,error:'password_too_short',min:10},400);
+    const password=String(body.password||'');if(password.length<4)return json({ok:false,error:'password_too_short',min:4},400);
     const managed=Array.isArray(body.managedTeams)?body.managedTeams.filter(Boolean):[];
     if(v.permissionGroup==='一级管理员'&&a.user.permission_group!=='超级管理员')return json({ok:false,error:'forbidden_target_role'},403);
     const hp=await hashPassword(password),now=nowIso();
@@ -52,7 +52,7 @@ export async function onRequestPatch(context){
     if(!canManageTarget(a.user,permissionGroup,team)&&a.user.id!==id)return json({ok:false,error:'forbidden_target_scope'},403);
     const displayName=String(body.displayName||target.display_name).trim(),managed=Array.isArray(body.managedTeams)?body.managedTeams:parseManagedTeams(target),active=body.status?body.status!=='停用':Boolean(target.is_active),now=nowIso();
     await context.env.DB.prepare('UPDATE users SET display_name=?,permission_group=?,team=?,managed_teams=?,is_active=?,updated_at=? WHERE id=?').bind(displayName,permissionGroup,team,JSON.stringify(managed),active?1:0,now,id).run();
-    if(body.password){const p=String(body.password);if(p.length<10)return json({ok:false,error:'password_too_short',min:10},400);const hp=await hashPassword(p);await context.env.DB.prepare('UPDATE users SET password_hash=?,password_salt=?,must_change_password=?,updated_at=? WHERE id=?').bind(hp.hash,hp.salt,body.mustChangePassword===false?0:1,now,id).run();await context.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(id).run();}
+    if(body.password){const p=String(body.password);if(p.length<4)return json({ok:false,error:'password_too_short',min:4},400);const hp=await hashPassword(p);await context.env.DB.prepare('UPDATE users SET password_hash=?,password_salt=?,must_change_password=?,updated_at=? WHERE id=?').bind(hp.hash,hp.salt,body.mustChangePassword===false?0:1,now,id).run();await context.env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(id).run();}
     await audit(context.env.DB,a.user,'update_user','user',String(id),{permissionGroup,team,active});return json({ok:true});
   }catch(e){return json({ok:false,error:'users_update_failed',message:e?.message||String(e)},500);}
 }
