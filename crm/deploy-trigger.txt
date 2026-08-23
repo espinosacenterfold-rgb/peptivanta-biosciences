@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T07:18:00+08:00
-Replaced the rigid customer form with a progressive quick-registration workflow: minimal intake fields first, automatic ownership/team/WhatsApp derivation, duplicate warnings, collapsible enrichment fields, preset tags, and save-then-follow-up flow.
+2026-08-24T07:25:00+08:00
+Simplified the customer detail page for fast sales follow-up: sticky customer identity, prominent rep-entered registration data, clear next action, compact recent/history follow-ups, and secondary system suggestions.
