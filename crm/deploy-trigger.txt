@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-24T00:29:00+08:00
-V8 UI optimization: denser dashboard, responsive customer workspace, fixed customer table widths and sticky headers.
+2026-08-24T00:36:00+08:00
+Configurable D1 permission groups, custom subaccount passwords, locked full-access super administrator.
