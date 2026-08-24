@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-25T06:18:00+08:00
-Removed customer first-message intake/display from new-customer registration, customer editing surfaces, workbench summaries, and customer detail UI. Existing historical first-message data is preserved in storage but no longer shown or edited, reducing clutter and keeping intake focused on actionable customer information.
+2026-08-25T06:24:00+08:00
+Follow-up records are now editable with audit-safe version retention. Current follow-up content can be corrected from the workbench, customer detail, or follow-up log. Each edit archives the previous state, retaining the latest three prior versions; sales users see only the current record, while lead/supervisor/superadmin roles can inspect the three-version modification history.
