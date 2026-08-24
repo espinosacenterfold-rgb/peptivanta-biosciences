@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-25T06:27:00+08:00
-Finalized editable follow-up history: current and historical follow-up entries can be corrected while preserving the previous state. The latest three prior versions are retained per follow-up; sales users see the latest record, while lead/supervisor/superadmin roles can inspect version history. Role-aware edit/version controls now refresh reliably after login permissions load.
+2026-08-25T06:36:00+08:00
+Imported the 2026 PEPTIVANTA product catalog from the supplied workbook: 105 products and 214 variants are now available as a searchable product library in new-customer registration and customer-profile editing. Search supports product names and Cat. No.; selecting a product exposes its listed specifications and clicking a specification inserts it into the demand/specification field while preserving manual entry for unlisted products.
