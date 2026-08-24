@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-25T06:24:00+08:00
-Follow-up records are now editable with audit-safe version retention. Current follow-up content can be corrected from the workbench, customer detail, or follow-up log. Each edit archives the previous state, retaining the latest three prior versions; sales users see only the current record, while lead/supervisor/superadmin roles can inspect the three-version modification history.
+2026-08-25T06:27:00+08:00
+Finalized editable follow-up history: current and historical follow-up entries can be corrected while preserving the previous state. The latest three prior versions are retained per follow-up; sales users see the latest record, while lead/supervisor/superadmin roles can inspect version history. Role-aware edit/version controls now refresh reliably after login permissions load.
