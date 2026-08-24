@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-25T05:55:00+08:00
-Applied the approved workbench redesign: premium CRM layout, stronger customer-summary hierarchy, cleaner KPI/filter/list panels, prominent bold phone number for WhatsApp lookup, unified quick actions, and a branded PEPTIVANTA favicon for the CRM and login page.
+2026-08-25T06:11:00+08:00
+Redesigned the customer situation panel: product/need now contains specifications/quantity and main objection, with customer type, sales stage, and grade alongside it. Increased workbench typography and card scale to match the approved mockup, removed the unassigned workbench entry, and replaced the fourth KPI with today's new leads.
