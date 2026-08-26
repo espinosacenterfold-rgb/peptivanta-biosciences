@@ -12,6 +12,10 @@ function normalizeNewCustomerOwnership(user,c){
   if(def.scope==='team'){x.team=user.team;const owner=String(x.owner||'').trim();if(!owner||owner==='未归属'||owner==='—'){x.owner=user.display_name;x.ownerUserId=Number(user.id);}return x;}
   return x;
 }
+function requestedDeletes(current,candidate,user){
+  const incoming=byId(candidate.customers);
+  return (current.customers||[]).filter(c=>canAccessCustomer(user,c)&&!incoming.has(c.id));
+}
 function mergeState(current,candidate,user){
   candidate=sanitizeIncoming(candidate);const def=roleDef(user);
   if(def.scope==='all'){
@@ -20,7 +24,9 @@ function mergeState(current,candidate,user){
   }
   const next=safeClone(current),curCustomers=byId(current.customers),incomingCustomers=byId(candidate.customers),mergedCustomers=[];
   for(const c of current.customers||[]){
-    if(!canAccessCustomer(user,c)){mergedCustomers.push(c);continue;}const n=incomingCustomers.get(c.id);if(!n){mergedCustomers.push(c);continue;}
+    if(!canAccessCustomer(user,c)){mergedCustomers.push(c);continue;}
+    const n=incomingCustomers.get(c.id);
+    if(!n){if(hasPermission(user,'客户删除'))continue;mergedCustomers.push(c);continue;}
     const x={...c,...n};if(def.scope==='owner'){x.owner=user.display_name;x.ownerUserId=Number(user.id);x.team=user.team;}if(!canAssignCustomer(user,x)){x.owner=c.owner;x.ownerUserId=c.ownerUserId;x.team=c.team;}mergedCustomers.push(x);
   }
   for(const n of candidate.customers||[]){if(curCustomers.has(n.id))continue;const x=normalizeNewCustomerOwnership(user,n);if(customerAllowedNew(user,x))mergedCustomers.push(x);}
@@ -45,8 +51,15 @@ export async function onRequestPut(context){
   try{
     const auth=await requireUser(context);if(auth.response)return auth.response;const body=await context.request.json();if(!body?.state)return json({ok:false,error:'missing_state'},400);
     const row=await ensureState(context.env.DB),revision=Number(row.revision||1),expected=Number(body.revision||0);if(expected!==revision)return conflict(context,auth.user);
-    const current=parseState(row),next=mergeState(current,body.state,auth.user),nextRevision=revision+1,now=nowIso(),users=await listUsers(context.env.DB);await hydrateDbOwnedState(context.env.DB,next,users);
+    const current=parseState(row),candidate=sanitizeIncoming(body.state),deletes=requestedDeletes(current,candidate,auth.user);
+    if(deletes.length&&!hasPermission(auth.user,'客户删除'))return json({ok:false,error:'customer_delete_forbidden',message:'当前账号没有客户删除权限'},403);
+    for(const c of deletes){
+      const hasOrder=(current.orders||[]).some(o=>String(o.customerId||'')===String(c.id));
+      if(hasOrder)return json({ok:false,error:'customer_has_orders',message:`客户 ${c.name||c.id} 已有关联订单，不能直接删除`,customerId:c.id},409);
+    }
+    const next=mergeState(current,candidate,auth.user),nextRevision=revision+1,now=nowIso(),users=await listUsers(context.env.DB);await hydrateDbOwnedState(context.env.DB,next,users);
     const wr=await context.env.DB.prepare('UPDATE app_state SET data=?,revision=?,updated_at=? WHERE id=1 AND revision=?').bind(JSON.stringify(next),nextRevision,now,revision).run();if(Number(wr.meta?.changes||0)!==1)return conflict(context,auth.user);
-    await audit(context.env.DB,auth.user,'state_sync','crm','global',{from:revision,to:nextRevision});return json({ok:true,revision:nextRevision,updatedAt:now,state:scopeStateForUser(next,auth.user,users)});
+    for(const c of deletes)await audit(context.env.DB,auth.user,'delete_customer','customer',c.id,{name:c.name||'',team:c.team||'',owner:c.owner||''});
+    await audit(context.env.DB,auth.user,'state_sync','crm','global',{from:revision,to:nextRevision,deletedCustomers:deletes.map(c=>c.id)});return json({ok:true,revision:nextRevision,updatedAt:now,state:scopeStateForUser(next,auth.user,users)});
   }catch(e){return json({ok:false,error:'state_put_failed',message:e?.message||String(e)},500);}
 }
