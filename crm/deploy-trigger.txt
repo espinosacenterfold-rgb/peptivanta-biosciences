@@ -1,3 +1,3 @@
 PEPTIVANTA CRM production redeploy trigger
-2026-08-26T07:53:00+08:00
-Added demand-aware smart follow-up scheduling. Reminder timing now recalculates from customer grade, sales stage, latest feedback/result, demand detail, objections, customer type and traits. Payment/urgent leads are same-day, high-intent S/A leads are accelerated, B/C leads use progressively lower frequency, repeat/fulfillment/waiting/no-reply states use dedicated cadences, and D/invalid leads stop automatic reminders. Grade/stage/feedback changes automatically refresh the due date while explicit manual dates remain respected for the current cycle.
+2026-08-26T08:02:00+08:00
+Added a formal 客户删除 permission. Team leaders receive it by default through a one-time permission migration and may delete only customers inside their team scope; superadmins retain full permission and other roles can be configured through the permission matrix. Customer deletion is blocked when linked orders exist, every successful deletion is audited, and delete controls are shown only to authorized users in the workbench/customer detail UI.
