@@ -2,7 +2,7 @@ const enc = new TextEncoder();
 const PASSWORD_PBKDF2_ITERATIONS = 100000;
 
 export const ALL_PERMISSIONS = [
-  '客户查看','客户编辑','负责人转移','跟进管理','销售管道','报价管理',
+  '客户查看','客户编辑','客户删除','负责人转移','跟进管理','销售管道','报价管理',
   '订单管理','订单查看','本人订单查看','成本利润','物流管理','物流查看',
   '数据分析','小组数据分析','数据导出','子账号管理','销售小组管理','权限组管理','系统设置'
 ];
@@ -10,7 +10,7 @@ export const ALL_PERMISSIONS = [
 const BASE_ROLE_DEFS = {
   '超级管理员': { scope: 'all', permissions: [...ALL_PERMISSIONS] },
   '一级管理员': { scope: 'managed_teams', permissions: ['客户查看','客户编辑','负责人转移','跟进管理','销售管道','报价管理','订单管理','物流管理','数据分析','数据导出','子账号管理','销售小组管理'] },
-  '二级管理员 / 组长': { scope: 'team', permissions: ['客户查看','客户编辑','跟进管理','销售管道','报价管理','订单查看','物流查看','小组数据分析'] },
+  '二级管理员 / 组长': { scope: 'team', permissions: ['客户查看','客户编辑','客户删除','跟进管理','销售管道','报价管理','订单查看','物流查看','小组数据分析'] },
   '普通销售': { scope: 'owner', permissions: ['客户查看','客户编辑','跟进管理','销售管道','报价管理','本人订单查看'] }
 };
 
@@ -80,6 +80,11 @@ export async function ensureSchema(db) {
       is_locked INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS system_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`,
     `CREATE TABLE IF NOT EXISTS whatsapp_accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -109,6 +114,17 @@ export async function ensureSchema(db) {
     db.prepare("UPDATE permission_groups SET scope='managed_teams' WHERE name='一级管理员' AND scope<>'managed_teams'"),
     db.prepare("UPDATE permission_groups SET scope='all',permissions=?,is_locked=1 WHERE name='超级管理员'").bind(JSON.stringify(ALL_PERMISSIONS))
   ]);
+
+  const deleteMigration = await db.prepare("SELECT value FROM system_meta WHERE key='lead_customer_delete_v1'").first();
+  if (!deleteMigration) {
+    const row = await db.prepare("SELECT permissions FROM permission_groups WHERE name='二级管理员 / 组长'").first();
+    const permissions = parsePermissionArray(row?.permissions, BASE_ROLE_DEFS['二级管理员 / 组长'].permissions);
+    if (!permissions.includes('客户删除')) permissions.push('客户删除');
+    await db.batch([
+      db.prepare("UPDATE permission_groups SET permissions=?,updated_at=? WHERE name='二级管理员 / 组长'").bind(JSON.stringify(permissions),now),
+      db.prepare("INSERT OR REPLACE INTO system_meta(key,value,updated_at) VALUES('lead_customer_delete_v1','1',?)").bind(now)
+    ]);
+  }
   await loadPermissionGroups(db);
 }
 
